@@ -122,8 +122,92 @@ class SASEGGUI:
         self.refresh_first_dropdown()
     
     def create_widgets(self):
+        # 主布局：左侧导航 + 右侧内容
+        content_row = tk.Frame(self.root)
+        content_row.pack(fill=tk.BOTH, expand=True)
+        
+        # ========== 左侧导航栏（仿 Dizal 风格）：浅灰背景 + 文字菜单 + 当前项左侧蓝条 ==========
+        SIDEBAR_BG = "#e5e5e5"
+        SIDEBAR_SEL_BG = "#d5d5d5"
+        SIDEBAR_LEFT_BAR = "#5B9BD5"
+        
+        self.sidebar = tk.Frame(content_row, bg=SIDEBAR_BG, width=140)
+        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        self.sidebar.pack_propagate(False)
+        
+        self.page_names = ["主页", "aCRF", "SDTM", "ADaM", "TFLs", "M5", "pm"]
+        self.sidebar_items = []  # [(frame, left_bar, text_lbl, page_id), ...]
+        self.current_page = "主页"
+        
+        def make_sidebar_item(parent, text, page_id):
+            frame = tk.Frame(parent, bg=SIDEBAR_BG, cursor="hand2")
+            frame.pack(fill=tk.X, pady=1)
+            left_bar = tk.Frame(frame, width=4, bg=SIDEBAR_BG)
+            left_bar.pack(side=tk.LEFT, fill=tk.Y)
+            left_bar.pack_propagate(False)
+            text_lbl = tk.Label(
+                frame,
+                text=text,
+                font=("Microsoft YaHei UI", 10),
+                bg=SIDEBAR_BG,
+                fg="#444444",
+                anchor="w",
+                padx=12,
+                pady=10,
+                cursor="hand2"
+            )
+            text_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            
+            def on_click(e, pid=page_id):
+                self._switch_page(pid)
+            def on_enter(ev, f=frame, lb=left_bar, tl=text_lbl, pid=page_id):
+                if pid != self.current_page:
+                    f.config(bg="#dddddd")
+                    lb.config(bg=SIDEBAR_BG)
+                    tl.config(bg="#dddddd")
+            def on_leave(ev, f=frame, lb=left_bar, tl=text_lbl, pid=page_id):
+                if pid == self.current_page:
+                    f.config(bg=SIDEBAR_SEL_BG)
+                    lb.config(bg=SIDEBAR_LEFT_BAR)
+                    tl.config(bg=SIDEBAR_SEL_BG)
+                else:
+                    f.config(bg=SIDEBAR_BG)
+                    lb.config(bg=SIDEBAR_BG)
+                    tl.config(bg=SIDEBAR_BG)
+            
+            for w in (frame, text_lbl, left_bar):
+                w.bind("<Button-1>", on_click)
+                w.bind("<Enter>", on_enter)
+                w.bind("<Leave>", on_leave)
+            return (frame, left_bar, text_lbl, page_id)
+        
+        self.sidebar_items.append(make_sidebar_item(self.sidebar, "Home", "主页"))
+        for name in ["aCRF", "SDTM", "ADaM", "TFLs", "M5", "pm"]:
+            self.sidebar_items.append(make_sidebar_item(self.sidebar, name, name))
+        
+        def update_sidebar_style():
+            for frame, left_bar, text_lbl, page_id in self.sidebar_items:
+                if page_id == self.current_page:
+                    frame.config(bg=SIDEBAR_SEL_BG)
+                    left_bar.config(bg=SIDEBAR_LEFT_BAR)
+                    text_lbl.config(bg=SIDEBAR_SEL_BG, fg="#333333")
+                else:
+                    frame.config(bg=SIDEBAR_BG)
+                    left_bar.config(bg=SIDEBAR_BG)
+                    text_lbl.config(bg=SIDEBAR_BG, fg="#444444")
+        
+        self._update_sidebar_style = update_sidebar_style
+        update_sidebar_style()
+        
+        # ========== 右侧主内容区（多页容器） ==========
+        self.main_container = tk.Frame(content_row)
+        self.main_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2, pady=2)
+        
+        # ----- 主页：下拉框 + 欢迎区 + Subfolders -----
+        self.home_page_frame = tk.Frame(self.main_container, bg="#f5f5f5")
+        
         # 顶部控制栏：6个水平排列的下拉框 + Launch按钮
-        top_frame = tk.Frame(self.root, bg="#f0f0f0", padx=10, pady=10)
+        top_frame = tk.Frame(self.home_page_frame, bg="#f0f0f0", padx=10, pady=10)
         top_frame.pack(fill=tk.X)
         
         # 创建6个水平排列的下拉框（支持搜索）
@@ -159,8 +243,53 @@ class SASEGGUI:
         )
         self.refresh_btn.pack(side=tk.LEFT, padx=5)
         
-        # 标签页控件
-        self.notebook = ttk.Notebook(self.root)
+        # 下拉框与 Subfolders 之间的欢迎区：文字 + 快捷按钮
+        self.welcome_frame = tk.Frame(self.home_page_frame, bg="#f5f5f5", padx=10, pady=8)
+        self.welcome_frame.pack(fill=tk.X)
+        welcome_lbl = tk.Label(
+            self.welcome_frame,
+            text="您好, 从哪里开始您的工作呢?",
+            font=("Microsoft YaHei UI", 11),
+            bg="#f5f5f5",
+            fg="#333333"
+        )
+        welcome_lbl.pack(anchor="w", pady=(0, 6))
+        # 按钮与 Subfolders 列名的对应关系（跳转至对应列）
+        self.quick_jump_map = [
+            ("aCRF", "04_crt"),
+            ("SDTM", "01_sdtm"),
+            ("ADaM", "02_adam"),
+            ("TFLs", "03_reports"),
+            ("M5", "05_pkpd"),
+            ("pm", "06_programs"),
+        ]
+        self.quick_buttons = []
+        btn_frame = tk.Frame(self.welcome_frame, bg="#f5f5f5")
+        btn_frame.pack(anchor="w")
+        for label_text, folder_key in self.quick_jump_map:
+            btn = tk.Button(
+                btn_frame,
+                text=label_text,
+                command=lambda page_id=label_text: self._switch_page(page_id),
+                width=8,
+                font=("Arial", 9),
+                bg="#9e9e9e",
+                fg="white",
+                activebackground="#757575",
+                activeforeground="white",
+                relief=tk.FLAT,
+                cursor="hand2",
+                padx=8,
+                pady=4
+            )
+            btn.pack(side=tk.LEFT, padx=4)
+            self.quick_buttons.append(btn)
+        
+        # 当前网格列顺序（用于跳转计算）
+        self.current_subfolders = []
+        
+        # 标签页控件（在主页内）
+        self.notebook = ttk.Notebook(self.home_page_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # "Hyperlinks to Sub Folders"标签页
@@ -227,7 +356,21 @@ class SASEGGUI:
         )
         autoexec_label.pack(pady=50)
         
-        # 状态栏
+        # ----- 6 个独立页面（占位，可后续扩展内容） -----
+        self.page_frames = {}
+        for page_id in ["aCRF", "SDTM", "ADaM", "TFLs", "M5", "pm"]:
+            f = tk.Frame(self.main_container, bg="#f5f5f5")
+            lbl = tk.Label(
+                f,
+                text=f"{page_id} 页面\n（内容可在此扩展）",
+                font=("Microsoft YaHei UI", 14),
+                bg="#f5f5f5",
+                fg="#666666"
+            )
+            lbl.pack(expand=True, pady=80)
+            self.page_frames[page_id] = f
+        
+        # 状态栏（必须在 _switch_page 之前创建，否则切换页面时 update_status 会报错）
         self.status_label = tk.Label(
             self.root,
             text="就绪",
@@ -237,6 +380,9 @@ class SASEGGUI:
             pady=2
         )
         self.status_label.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        # 默认显示主页
+        self._switch_page("主页")
     
     def get_directories(self, path):
         """获取指定路径下的所有目录"""
@@ -406,6 +552,46 @@ class SASEGGUI:
                 widget.destroy()
         self.grid_labels = {}
     
+    def _jump_to_column(self, folder_key):
+        """快捷按钮：滚动到 Subfolders 中对应的列（页面）"""
+        if not self.current_subfolders or not hasattr(self, 'canvas') or not self.canvas.winfo_exists():
+            self.update_status("请先选择路径并等待 Subfolders 显示")
+            return
+        col_idx = None
+        for i, name in enumerate(self.current_subfolders):
+            if name == folder_key or folder_key.lower() in name.lower():
+                col_idx = i
+                break
+        if col_idx is None:
+            self.update_status(f"未找到对应列: {folder_key}")
+            return
+        column_width = 120
+        padx = 2
+        total_width = len(self.current_subfolders) * (column_width + padx * 2)
+        if total_width <= 0:
+            return
+        x_start = col_idx * (column_width + padx * 2)
+        try:
+            self.canvas.xview_moveto(max(0.0, min(1.0, x_start / total_width)))
+        except Exception:
+            pass
+        self.update_status(f"已跳转至 {self.current_subfolders[col_idx]}")
+    
+    def _switch_page(self, page_id):
+        """切换左侧导航对应的页面（主页 / aCRF / SDTM / ADaM / TFLs / M5 / pm）"""
+        self.current_page = page_id
+        # 隐藏所有内容页
+        self.home_page_frame.pack_forget()
+        for f in self.page_frames.values():
+            f.pack_forget()
+        # 显示当前页
+        if page_id == "主页":
+            self.home_page_frame.pack(fill=tk.BOTH, expand=True)
+        else:
+            self.page_frames[page_id].pack(fill=tk.BOTH, expand=True)
+        self._update_sidebar_style()
+        self.update_status(f"当前页面: {page_id}")
+    
     def update_grid_display(self):
         """更新网格显示，显示当前路径下的子文件夹（只有选择完第4个下拉框后才显示）"""
         # 清空现有网格
@@ -449,6 +635,9 @@ class SASEGGUI:
             
             if not subfolders:
                 return
+            
+            # 保存当前列顺序，供快捷按钮跳转使用
+            self.current_subfolders = list(subfolders)
             
             # 创建列标题（每个子文件夹作为一列）
             for col_idx, folder_name in enumerate(subfolders):
