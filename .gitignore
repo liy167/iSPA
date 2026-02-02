@@ -1,0 +1,23 @@
+# Build outputs
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+*.lnk
+Thumbs.db
+Desktop.ini
+
+# Misc
+新建 BMP 图像.bmp
+*.bmp
