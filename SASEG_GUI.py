@@ -7,6 +7,7 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pywinauto.application import Application
+from tfls_pdt import show_pdt_dialog
 from pywinauto.keyboard import send_keys
 
 # 忽略 UserWarning 警告
@@ -114,6 +115,7 @@ class SASEGGUI:
         # 存储网格框架和标签
         self.grid_frame = None
         self.grid_labels = {}  # 存储列标题和内容标签
+        self.current_subfolders = []  # 当前网格列顺序（用于快捷跳转）
         
         # 创建界面
         self.create_widgets()
@@ -203,11 +205,8 @@ class SASEGGUI:
         self.main_container = tk.Frame(content_row)
         self.main_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2, pady=2)
         
-        # ----- 主页：下拉框 + 欢迎区 + Subfolders -----
-        self.home_page_frame = tk.Frame(self.main_container, bg="#f5f5f5")
-        
-        # 顶部控制栏：6个水平排列的下拉框 + Launch按钮
-        top_frame = tk.Frame(self.home_page_frame, bg="#f0f0f0", padx=10, pady=10)
+        # ----- 顶部栏：6 个下拉框 + Launch / Refresh（所有页面均展示） -----
+        top_frame = tk.Frame(self.main_container, bg="#f0f0f0", padx=10, pady=10)
         top_frame.pack(fill=tk.X)
         
         # 创建6个水平排列的下拉框（支持搜索）
@@ -243,8 +242,8 @@ class SASEGGUI:
         )
         self.refresh_btn.pack(side=tk.LEFT, padx=5)
         
-        # 下拉框与 Subfolders 之间的欢迎区：文字 + 快捷按钮
-        self.welcome_frame = tk.Frame(self.home_page_frame, bg="#f5f5f5", padx=10, pady=8)
+        # ----- 欢迎区：在下拉框下面，所有页面均展示（问候语 + 6 个快捷按钮） -----
+        self.welcome_frame = tk.Frame(self.main_container, bg="#f5f5f5", padx=10, pady=8)
         self.welcome_frame.pack(fill=tk.X)
         welcome_lbl = tk.Label(
             self.welcome_frame,
@@ -254,7 +253,6 @@ class SASEGGUI:
             fg="#333333"
         )
         welcome_lbl.pack(anchor="w", pady=(0, 6))
-        # 按钮与 Subfolders 列名的对应关系（跳转至对应列）
         self.quick_jump_map = [
             ("aCRF", "04_crt"),
             ("SDTM", "01_sdtm"),
@@ -285,8 +283,8 @@ class SASEGGUI:
             btn.pack(side=tk.LEFT, padx=4)
             self.quick_buttons.append(btn)
         
-        # 当前网格列顺序（用于跳转计算）
-        self.current_subfolders = []
+        # ----- 主页：仅 Subfolders 网格（仅 Home 页展示） -----
+        self.home_page_frame = tk.Frame(self.main_container, bg="#f5f5f5")
         
         # 标签页控件（在主页内）
         self.notebook = ttk.Notebook(self.home_page_frame)
@@ -360,14 +358,30 @@ class SASEGGUI:
         self.page_frames = {}
         for page_id in ["aCRF", "SDTM", "ADaM", "TFLs", "M5", "pm"]:
             f = tk.Frame(self.main_container, bg="#f5f5f5")
-            lbl = tk.Label(
-                f,
-                text=f"{page_id} 页面\n（内容可在此扩展）",
-                font=("Microsoft YaHei UI", 14),
-                bg="#f5f5f5",
-                fg="#666666"
-            )
-            lbl.pack(expand=True, pady=80)
+            if page_id == "TFLs":
+                btn_pdt = tk.Button(
+                    f,
+                    text="生成PDT",
+                    command=lambda: show_pdt_dialog(self),
+                    width=12,
+                    font=("Microsoft YaHei UI", 10),
+                    bg="#9e9e9e",
+                    fg="white",
+                    relief=tk.FLAT,
+                    cursor="hand2",
+                    padx=10,
+                    pady=6
+                )
+                btn_pdt.pack(anchor="w", padx=16, pady=16)
+            else:
+                lbl = tk.Label(
+                    f,
+                    text=f"{page_id} 页面\n（内容可在此扩展）",
+                    font=("Microsoft YaHei UI", 14),
+                    bg="#f5f5f5",
+                    fg="#666666"
+                )
+                lbl.pack(expand=True, pady=80)
             self.page_frames[page_id] = f
         
         # 状态栏（必须在 _switch_page 之前创建，否则切换页面时 update_status 会报错）
@@ -439,30 +453,6 @@ class SASEGGUI:
         # 更新当前路径
         self.selected_paths[index] = selected_value
         
-        # 检查第一个下拉框是否为"projects"，如果是则限制只能选择前4个
-        if index == 0 and selected_value.lower() == "projects":
-            # 禁用第5和第6个下拉框
-            self.comboboxes[4].config(state="disabled")
-            self.comboboxes[5].config(state="disabled")
-            # 清空第5和第6个下拉框
-            self.comboboxes[4].set("")
-            if hasattr(self.comboboxes[4], 'set_values'):
-                self.comboboxes[4].set_values([])
-            else:
-                self.comboboxes[4]['values'] = []
-            self.comboboxes[5].set("")
-            if hasattr(self.comboboxes[5], 'set_values'):
-                self.comboboxes[5].set_values([])
-            else:
-                self.comboboxes[5]['values'] = []
-            self.selected_paths[4] = ""
-            self.selected_paths[5] = ""
-        elif index == 0 and selected_value.lower() != "projects":
-            # 如果第一个下拉框不是"projects"，启用所有下拉框
-            # SearchableCombobox默认就是normal状态，只需确保不是disabled
-            self.comboboxes[4].config(state="normal")
-            self.comboboxes[5].config(state="normal")
-        
         # 构建当前完整路径
         current_path = self.z_drive
         for i in range(index + 1):
@@ -471,11 +461,7 @@ class SASEGGUI:
         
         # 更新后续下拉框
         if index < 5:  # 如果不是最后一个下拉框
-            # 如果第一个下拉框是"projects"，只允许更新到第4个下拉框
-            max_index = 3 if self.selected_paths[0].lower() == "projects" else 5
-            
-            if index + 1 <= max_index:
-                self.update_next_dropdown(index + 1, current_path)
+            self.update_next_dropdown(index + 1, current_path)
             
             # 清空更后面的下拉框
             for i in range(index + 2, 6):
@@ -593,22 +579,14 @@ class SASEGGUI:
         self.update_status(f"当前页面: {page_id}")
     
     def update_grid_display(self):
-        """更新网格显示，显示当前路径下的子文件夹（只有选择完第4个下拉框后才显示）"""
+        """更新网格显示，显示当前路径下的子文件夹（选择至少4级路径后显示）"""
         # 清空现有网格
         self.clear_grid()
         
-        # 检查是否选择了至少4个下拉框（索引0-3）
-        # 当第一个下拉框为"projects"时，选择完第4个下拉框后就应该显示网格
-        selected_count = sum(1 for path in self.selected_paths[:4] if path)
-        
+        # 检查是否选择了至少4级路径（任意连续层级）
+        selected_count = sum(1 for path in self.selected_paths if path)
         if selected_count < 4:
             return
-        
-        # 特别检查：当第一个下拉框为"projects"时，确保前4个下拉框都有值
-        if self.selected_paths[0] and self.selected_paths[0].lower() == "projects":
-            # 检查前4个下拉框是否都有值
-            if not all(self.selected_paths[i] for i in range(4)):
-                return
         
         # 获取当前完整路径
         current_path = self.get_current_path()
@@ -1017,9 +995,10 @@ class SASEGGUI:
             # 启动应用程序
             app = Application(backend='uia').start(
                 r'"C:\Program Files\SaS\SASHome\SASEnterpriseGuide\8\SEGuide.exe"'
+            
             )
             
-            # 等待对话框出现
+            # 等待对话框出现image.png
             app.Dialog.wait("exists ready", timeout=15, retry_interval=3)
             
             # 查找子窗口
