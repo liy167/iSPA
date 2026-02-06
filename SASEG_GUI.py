@@ -122,6 +122,8 @@ class SASEGGUI:
         
         # 初始化第一个下拉框
         self.refresh_first_dropdown()
+        # 测试阶段：默认选中 projects、HRS2129、HRS2129_test、csr_01
+        self.root.after(100, self._apply_test_defaults)
     
     def create_widgets(self):
         # 主布局：左侧导航 + 右侧内容
@@ -361,7 +363,7 @@ class SASEGGUI:
             if page_id == "TFLs":
                 btn_pdt = tk.Button(
                     f,
-                    text="生成PDT",
+                    text="1. 生成PDT",
                     command=lambda: show_pdt_dialog(self),
                     width=12,
                     font=("Microsoft YaHei UI", 10),
@@ -442,7 +444,31 @@ class SASEGGUI:
             else:
                 self.comboboxes[0]['values'] = []
             self.update_status("Z盘根目录为空或无法访问")
-    
+
+    def _apply_test_defaults(self):
+        """测试阶段：将前4个下拉框默认设置为 projects、HRS2129、HRS2129_test、csr_01"""
+        defaults = ["projects", "HRS2129", "HRS2129_test", "csr_01"]
+        for i in range(4, 6):
+            self.comboboxes[i].set("")
+            if hasattr(self.comboboxes[i], 'set_values'):
+                self.comboboxes[i].set_values([])
+            else:
+                self.comboboxes[i]['values'] = []
+            self.selected_paths[i] = ""
+        current_path = self.z_drive
+        for i, val in enumerate(defaults):
+            if i >= 6:
+                break
+            dirs = self.get_directories(current_path)
+            if not dirs or val not in dirs:
+                break
+            self.comboboxes[i].set(val)
+            self.selected_paths[i] = val
+            current_path = os.path.join(current_path, val)
+            if i < 5:
+                self.update_next_dropdown(i + 1, current_path)
+        self.root.after(10, self.update_grid_display)
+
     def on_dropdown_selected(self, index):
         """当下拉框选择改变时的处理"""
         selected_value = self.comboboxes[index].get()

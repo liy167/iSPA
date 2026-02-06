@@ -133,8 +133,36 @@ def show_pdt_dialog(gui):
         analyte_names = q3_entry.get().strip()
         toc_path = toc_entry.get().strip()
         pdt_path = pdt_entry.get().strip()
-        gui.update_status("生成PDT: 已收集选择，TOC=%s，PDT=%s" % (toc_path[:40], pdt_path[:40]))
-        dlg.destroy()
+        setup_path = os.path.join(os.path.dirname(pdt_path), "setup.xlsx")
+
+        if not os.path.isfile(pdt_path):
+            messagebox.showerror("错误", f"PDT 文件不存在或无法访问：{pdt_path}")
+            return
+        if not os.path.isfile(toc_path):
+            messagebox.showerror("错误", f"TOC 文件不存在或无法访问：{toc_path}")
+            return
+        if not os.path.isfile(setup_path):
+            messagebox.showerror("错误", f"setup.xlsx 不存在或无法访问：{setup_path}\n（应与 PDT 同目录）")
+            return
+        if not design_types:
+            messagebox.showwarning("提示", "请至少选择一种分析设计类型")
+            return
+
+        try:
+            from tfls_pdt_update import update_pdt_deliverables
+            success, msg = update_pdt_deliverables(
+                pdt_path, toc_path, setup_path,
+                design_types, endpoints, analyte_names or None
+            )
+        except Exception as e:
+            messagebox.showerror("错误", f"更新失败：{e}")
+            return
+
+        if success:
+            messagebox.showinfo("成功", msg)
+            gui.update_status(msg)
+        else:
+            messagebox.showerror("错误", msg)
 
     def on_open_edit():
         pdt_path = pdt_entry.get().strip()
