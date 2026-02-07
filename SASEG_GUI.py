@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pywinauto.application import Application
 from tfls_pdt import show_pdt_dialog
+from tfls_metadata import show_metadata_setup_dialog
 from pywinauto.keyboard import send_keys
 
 # 忽略 UserWarning 警告
@@ -363,11 +364,12 @@ class SASEGGUI:
             if page_id == "TFLs":
                 btn_row = tk.Frame(f, bg="#f5f5f5")
                 btn_row.pack(anchor="w", padx=16, pady=16)
+                btn_width = 10  # 两按钮列宽相同且较窄，文字各两行显示
                 btn_metadata = tk.Button(
                     btn_row,
-                    text="Metadata Setup",
-                    command=lambda: None,  # 占位，可后续绑定
-                    width=14,
+                    text="Metadata\nSetup",
+                    command=lambda: show_metadata_setup_dialog(self),
+                    width=btn_width,
                     font=("Microsoft YaHei UI", 10),
                     bg="#9e9e9e",
                     fg="white",
@@ -379,9 +381,9 @@ class SASEGGUI:
                 btn_metadata.pack(side=tk.LEFT, padx=(0, 8))
                 btn_pdt = tk.Button(
                     btn_row,
-                    text="PDT Gen",
+                    text="PDT\nGen",
                     command=lambda: show_pdt_dialog(self),
-                    width=12,
+                    width=btn_width,
                     font=("Microsoft YaHei UI", 10),
                     bg="#9e9e9e",
                     fg="white",

@@ -187,112 +187,25 @@ def show_pdt_dialog(gui):
             messagebox.showerror("错误", msg)
 
     def run_gen(toc_widget, pdt_widget):
-        """共用逻辑：根据 toc_widget、pdt_widget 的路径执行 PDT 生成并填写 Program Name/SYSPARM。"""
-        design_types = [k for k, v in q1_vars.items() if v.get()]
-        endpoints = [k for k, v in q2_vars.items() if v.get()]
-        analyte_names = q3_entry.get().strip()
-        toc_path = toc_widget.get().strip()
-        pdt_path = pdt_widget.get().strip()
-        setup_path = os.path.join(os.path.dirname(pdt_path), "setup.xlsx")
-
-        if not design_types:
-            messagebox.showwarning("提示", "问题1 为必选，请至少选择一种分析设计类型。")
+        """点击初版PDT：调用 SAS EG 打开并运行 25_generate_pdt_call.sas（路径 = 前四个下拉框 + \\utility\\tools\\25_generate_pdt_call.sas）。"""
+        SAS_EG_PATH = r"C:\Program Files\SaS\SASHome\SASEnterpriseGuide\8\SEGuide.exe"
+        base_4 = getattr(gui, "z_drive", "Z:\\")
+        for i in range(4):
+            if getattr(gui, "selected_paths", None) and i < len(gui.selected_paths) and gui.selected_paths[i]:
+                base_4 = os.path.join(base_4, gui.selected_paths[i])
+        sas_script = os.path.join(base_4, "utility", "tools", "25_generate_pdt_call.sas")
+        if not os.path.isfile(sas_script):
+            messagebox.showerror("错误", "未找到 SAS 脚本：\n%s" % sas_script)
             return
-        # 问题2：选了 PK参数(血/尿/粪) 则必须同时选择对应样本类型的 PK浓度
-        pk_param_to_conc = {"PK参数(血)": "PK浓度(血)", "PK参数(尿)": "PK浓度(尿)", "PK参数(粪)": "PK浓度(粪)"}
-        for param, conc in pk_param_to_conc.items():
-            if q2_vars[param].get() and not q2_vars[conc].get():
-                messagebox.showwarning("提示", f"选择了「{param}」时，必须同时选择「{conc}」。")
-                return
-        if not os.path.isfile(pdt_path):
-            messagebox.showerror("错误", f"PDT 文件不存在或无法访问：{pdt_path}")
+        if not os.path.isfile(SAS_EG_PATH):
+            messagebox.showerror("错误", "未找到 SAS EG：\n%s" % SAS_EG_PATH)
             return
-        if not os.path.isfile(toc_path):
-            messagebox.showerror("错误", f"TOC 文件不存在或无法访问：{toc_path}")
-            return
-        if not os.path.isfile(setup_path):
-            messagebox.showerror("错误", f"setup.xlsx 不存在或无法访问：{setup_path}\n（应与 PDT 同目录）")
-            return
-
         try:
-            from tfls_pdt_gen import gen_pdt_deliverables, _read_lng
-            success, msg = gen_pdt_deliverables(
-                pdt_path, toc_path, setup_path,
-                design_types, endpoints, analyte_names or None
-            )
+            subprocess.Popen([SAS_EG_PATH, sas_script], cwd=base_4, shell=False)
+            gui.update_status("已调用 SAS EG 打开脚本：25_generate_pdt_call.sas")
+            messagebox.showinfo("提示", "已启动 SAS EG 并打开脚本 25_generate_pdt_call.sas，请在 SAS EG 中运行。")
         except Exception as e:
-            messagebox.showerror("错误", f"更新失败：{e}")
-            return
-
-        if success:
-            # 根据添加行的 Title 填写 Program Name 和 SYSPARM Value（固定使用 utility/metadata 下 program_name.xlsx）
-            program_name_path = r"Z:\projects\utility\metadata\program_name.xlsx"
-            if os.path.isfile(program_name_path):
-                try:
-                    from pdt_fill_from_program_name import fill_pdt_program_and_sysparm
-                    lng_val = _read_lng(setup_path)
-                    lng = "cn" if (lng_val and str(lng_val).upper() in ("CHN", "CN", "CHINESE", "中文", "ZH", "ZH-CN")) else "en"
-                    fill_ok, fill_msg = fill_pdt_program_and_sysparm(
-                        pdt_path, program_name_path, lng=lng, backup=False
-                    )
-                    if fill_ok:
-                        msg = msg + "\n" + fill_msg
-                    else:
-                        msg = msg + "\n（填写 Program Name/SYSPARM 时：" + fill_msg + "）"
-                except Exception as e:
-                    msg = msg + "\n（根据 Title 填写 Program Name/SYSPARM 时出错：%s）" % e
-            else:
-                msg = msg + "\n（未找到 Z:\\projects\\utility\\metadata\\program_name.xlsx，未填写 Program Name 与 SYSPARM Value）"
-
-            # 调用 SAS EG 脚本：前四个下拉框路径 + \utility\tools\25_generate_pdt_call.sas
-            SAS_EG_PATH = r"C:\Program Files\SaS\SASHome\SASEnterpriseGuide\8\SEGuide.exe"
-            base_4 = getattr(gui, "z_drive", "Z:\\")
-            for i in range(4):
-                if getattr(gui, "selected_paths", None) and i < len(gui.selected_paths) and gui.selected_paths[i]:
-                    base_4 = os.path.join(base_4, gui.selected_paths[i])
-            sas_script = os.path.join(base_4, "utility", "tools", "25_generate_pdt_call.sas")
-            if os.path.isfile(sas_script):
-                if os.path.isfile(SAS_EG_PATH):
-                    try:
-                        subprocess.Popen(
-                            [SAS_EG_PATH, sas_script],
-                            cwd=base_4,
-                            shell=False,
-                        )
-                        msg = msg + "\n已调用 SAS EG 打开脚本：25_generate_pdt_call.sas"
-                    except Exception as e:
-                        msg = msg + "\n（调用 SAS EG 时出错：%s）" % e
-                else:
-                    msg = msg + "\n（未找到 SAS EG：%s）" % SAS_EG_PATH
-            else:
-                msg = msg + "\n（未找到 SAS 脚本：%s）" % sas_script
-
-            gui.update_status(msg)
-            # 成功弹窗：仅「打开PDT」按钮，弹窗加宽
-            success_win = tk.Toplevel(dlg)
-            success_win.title("成功")
-            success_win.transient(dlg)
-            success_win.grab_set()
-            success_win.configure(bg="#f0f0f0")
-            success_win.minsize(500, 0)
-            tk.Label(success_win, text=msg, font=("Microsoft YaHei UI", 9), bg="#f0f0f0", wraplength=460, justify=tk.LEFT).pack(padx=28, pady=(24, 18))
-            btn_inner = tk.Frame(success_win, bg="#f0f0f0")
-            btn_inner.pack(pady=(0, 18))
-            def close_success():
-                success_win.grab_release()
-                success_win.destroy()
-            success_win.protocol("WM_DELETE_WINDOW", close_success)
-            def open_pdt():
-                if pdt_path and os.path.isfile(pdt_path):
-                    try:
-                        os.startfile(pdt_path)
-                        gui.update_status("已打开PDT: " + os.path.basename(pdt_path))
-                    except Exception as e:
-                        messagebox.showerror("错误", "无法打开文件: %s" % e)
-                close_success()
-            tk.Button(btn_inner, text="打开PDT", command=open_pdt, width=10, font=("Microsoft YaHei UI", 9)).pack()
-        else:
-            messagebox.showerror("错误", msg)
+            messagebox.showerror("错误", "调用 SAS EG 时出错：%s" % e)
 
     def on_open_edit(pdt_widget):
         p = pdt_widget.get().strip()
