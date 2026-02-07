@@ -94,7 +94,7 @@
 |----|--------|--------------|
 | Validation Level | Non-critical | List Values!$E$2:$E$4 |
 | Developers | Gang Cheng | - |
-| Validators | Yi Yang | - |
+| Validators | Jianling Ren | - |
 | Output Status | （无初始值） | List Values!$F$2:$F$3 |
 | Validated by Programmer/Statistician | Not Started | List Values!$G$2:$G$4 |
 
@@ -146,7 +146,7 @@
 | 文件 | 说明 |
 |------|------|
 | tfls_pdt.py | 弹窗 UI 与 on_ok 调用逻辑 |
-| tfls_pdt_update.py | PDT 更新核心：备份、读 TOC/setup、筛选、写 Deliverables、数据验证 |
+| tfls_pdt_gen.py | PDT 生成核心：备份、读 TOC/setup、筛选、写 Deliverables、数据验证 |
 
 ---
 

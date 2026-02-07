@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-PDT 更新模块：备份原PDT，按 TOC 与用户选择更新 Deliverables sheet 中 Category=Output 的行。
+PDT 生成模块：备份原PDT，按 TOC 与用户选择生成 Deliverables sheet 中 Category=Output 的行。
 """
 import os
 import shutil
 from datetime import datetime
 from copy import copy
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import quote_sheetname, get_column_letter
 from openpyxl.styles import PatternFill
@@ -49,9 +49,8 @@ ENDPOINT_TO_CATEGORY = {
 DESIGN_TYPE_COLS = ["SAD", "FE", "MAD", "BE", "MB"]
 # 设计类型 -> Output Reference 后缀
 DESIGN_TYPE_SUFFIX = {"SAD": "a", "FE": "b", "MAD": "c", "BE": "d", "MB": "e"}
-# 问题3 分析物占位符（Title_CN 与 Title_EN）
-PLACEHOLDER_ANALYTE_CN = "<Analyte分析物>"
-PLACEHOLDER_ANALYTE_EN = "<Analyte>"
+# 问题3 分析物占位符（Title_CN 与 Title_EN 统一为 [Analyte]，与 TOC PH1 中一致）
+PLACEHOLDER_ANALYTE = "[Analyte]"
 # PK浓度/PK参数 血/尿/粪 子类型过滤：Title 中的中英文关键词
 # 选(血)则排除含 尿/粪；选(尿)则排除含 血/粪；选(粪)则排除含 血/尿
 SUBTYPE_TERMS = {
@@ -114,6 +113,14 @@ def _normalize_header(h):
     return " ".join(s.split())  # 将换行、多空格归一为单空格
 
 
+def _normalize_analyte_placeholder(s):
+    """将 TOC 中旧占位符 <Analyte分析物> / <Analyte> 统一为 [Analyte]。"""
+    if not s:
+        return s
+    s = str(s).replace("<Analyte分析物>", PLACEHOLDER_ANALYTE).replace("<Analyte>", PLACEHOLDER_ANALYTE)
+    return s
+
+
 def _read_toc_rows(toc_path):
     """
     读取 TOC 的 PH1 sheet，按列名返回行列表。
@@ -150,12 +157,12 @@ def _read_toc_rows(toc_path):
 def _filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_names=None):
     """
     按基准行、终点额外添加、设计类型展开，生成 Deliverables 行列表。
-    若 analyte_names 有值且 Title 含 <Analyte分析物>/<Analyte>，则按分析物展开（每个分析物输出一行）。
+    若 analyte_names 有值且 Title 含 [Analyte]，则按分析物展开；若问题2 选了 PK浓度/PK参数 且问题3 为空，则 [Analyte] 赋空值。
     返回 list of dict: {Category, Output Type, Title, Population, Footnotes, Output Reference}
     """
     use_title = "Title_CN" if use_cn else "Title_EN"
     use_footnotes = "Footnotes_CN" if use_cn else "Footnotes_EN"
-    placeholder = PLACEHOLDER_ANALYTE_CN if use_cn else PLACEHOLDER_ANALYTE_EN
+    placeholder = PLACEHOLDER_ANALYTE  # Title_CN / Title_EN 统一使用 [Analyte]
     analytes = [a.strip() for a in (analyte_names or "").split("|") if a.strip()] if analyte_names else []
 
     # 1. 基准行：排除 EXCLUDED_CATEGORY_CN
@@ -212,7 +219,7 @@ def _filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_n
         else:
             template_num = str(template_num).strip()
         output_type = r.get("Output Type") or ""
-        title = r.get(use_title) or ""
+        title = _normalize_analyte_placeholder(r.get(use_title) or "")
         population = r.get("Population") or ""
         footnotes = r.get(use_footnotes) or ""
 
@@ -224,21 +231,27 @@ def _filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_n
             if dt_cols_present:
                 if dt_val is None or (isinstance(dt_val, str) and not str(dt_val).strip()):
                     continue
-            # 仅选择一个设计类型时，Output Reference 与 Title 均不加后缀
+            # 问题1 设计类型后缀：按实际选择项的序号，后缀为 "." + 序号（如选 SAD、MAD 则 SAD=1、MAD=2）
+            design_ordinal = design_types.index(dt) + 1
+            # Title 显示：多选时加 " - SAD" 等（中英文括号均统一为 " - "）
             if len(design_types) == 1:
-                base_out_ref = template_num or ""
                 base_title = title
             else:
-                suffix = DESIGN_TYPE_SUFFIX.get(dt, dt)
-                base_out_ref = f"{template_num}{suffix}" if template_num else suffix
-                br_open, br_close = ("（", "）") if use_cn else ("(", ")")
-                base_title = f"{title}{br_open}{dt}{br_close}" if title else f"{br_open}{dt}{br_close}"
+                base_title = f"{title} - {dt}" if title else dt
 
-            # 问题3：若 Title 含占位符且 analyte_names 有值，按分析物展开；Output Reference 后缀用序号 1、2、3…，不用分析物名称
+            # OUTREF 规则：先添加 [Analyte] 后缀（用 "." 连接），后添加问题1 序号后缀 "." + design_ordinal
+            def _build_out_ref(analyte_idx=None):
+                parts = [template_num] if (template_num and template_num.strip()) else []
+                if analyte_idx is not None:
+                    parts.append(str(analyte_idx))
+                parts.append(str(design_ordinal))
+                return ".".join(parts)
+
+            # 问题3：若 Title 含 [Analyte] 且 analyte_names 有值则按分析物展开；否则将 [Analyte] 赋空（问题3 空值时）
             if placeholder in base_title and analytes:
                 for idx, analyte in enumerate(analytes, start=1):
                     title_with_dt = base_title.replace(placeholder, analyte)
-                    out_ref = f"{base_out_ref}_{idx}" if base_out_ref else str(idx)
+                    out_ref = _build_out_ref(analyte_idx=idx)  # 先 analyte 后缀（.idx），后 design 后缀（.design_ordinal）
                     result.append({
                         "Category": "Output",
                         "Output Type": output_type,
@@ -248,12 +261,13 @@ def _filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_n
                         "Output Reference": out_ref,
                         "Validation Level": "Non-critical",
                         "Developers": "Gang Cheng",
-                        "Validators": "Yi Yang",
+                        "Validators": "Jianling Ren",
                         "Validated by Programmer/Statistician": "Not Started",
                     })
             else:
+                # 问题2 选了 PK浓度/PK参数 且问题3 为空时，[Analyte] 赋空值
                 title_with_dt = base_title.replace(placeholder, analytes[0] if analytes else "") if placeholder in base_title else base_title
-                out_ref = base_out_ref
+                out_ref = _build_out_ref()  # 无 analyte 后缀，仅 template + "." + design_ordinal
                 result.append({
                     "Category": "Output",
                     "Output Type": output_type,
@@ -263,10 +277,87 @@ def _filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_n
                     "Output Reference": out_ref,
                     "Validation Level": "Non-critical",
                     "Developers": "Gang Cheng",
-                    "Validators": "Yi Yang",
+                    "Validators": "Jianling Ren",
                     "Validated by Programmer/Statistician": "Not Started",
                 })
     return result
+
+
+# TOC.xlsx 的 TOC sheet 列名（与 generate_pdt.sas 等一致）
+TOC_SHEET_COLS = ["OUTTYPE", "OUTREF", "OUTTITLE", "OUTPOP", "OUTNOTE"]
+
+
+def gen_toc_study(template_path, study_path, setup_path, design_types, endpoints, analyte_names=None):
+    """
+    根据 TOC_template.xlsx 与前三个问题（设计类型、终点、分析物），筛选并展开后生成 TOC.xlsx。
+    TOC sheet 列映射：OUTTYPE<-Output Type, OUTREF<-Output Reference, OUTTITLE<-Title, OUTPOP<-Population, OUTNOTE<-Footnotes。
+    """
+    use_cn = True
+    if setup_path and os.path.isfile(setup_path):
+        lng_val = _read_lng(setup_path)
+        use_cn = _is_chinese_lng(lng_val)
+
+    toc_rows = _read_toc_rows(template_path)
+    if not toc_rows:
+        return False, "TOC_template 的 PH1 sheet 未找到或为空"
+
+    new_rows = _filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_names)
+
+    # 映射为 TOC sheet 行：OUTTYPE, OUTREF, OUTTITLE, OUTPOP, OUTNOTE
+    toc_sheet_rows = []
+    for r in new_rows:
+        toc_sheet_rows.append({
+            "OUTTYPE": r.get("Output Type") or "",
+            "OUTREF": r.get("Output Reference") or "",
+            "OUTTITLE": r.get("Title") or "",
+            "OUTPOP": r.get("Population") or "",
+            "OUTNOTE": r.get("Footnotes") or "",
+        })
+
+    d = os.path.dirname(study_path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+
+    # 若原 TOC.xlsx 已存在，先备份到同目录下 99_archive，文件名加年月日时分秒
+    if os.path.isfile(study_path):
+        study_dir = os.path.dirname(os.path.abspath(study_path))
+        archive_dir = os.path.join(study_dir, "99_archive")
+        os.makedirs(archive_dir, exist_ok=True)
+        base_name = os.path.splitext(os.path.basename(study_path))[0]
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = os.path.join(archive_dir, f"{base_name}_{ts}.xlsx")
+        shutil.copy2(study_path, backup_path)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "TOC"
+    for col_idx, col_name in enumerate(TOC_SHEET_COLS, start=1):
+        ws.cell(row=1, column=col_idx, value=col_name)
+    for row_idx, row_data in enumerate(toc_sheet_rows, start=2):
+        for col_idx, col_name in enumerate(TOC_SHEET_COLS, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=row_data.get(col_name, ""))
+
+    # 按内容长度适当调整列宽（中文字符按约 2 单位估算）
+    def _cell_width(val):
+        if val is None:
+            return 0
+        s = str(val)
+        n = 0
+        for c in s:
+            n += 2 if "\u4e00" <= c <= "\u9fff" else 1
+        return n
+    for col_idx in range(1, len(TOC_SHEET_COLS) + 1):
+        col_letter = get_column_letter(col_idx)
+        max_w = 8
+        for row_idx in range(1, ws.max_row + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            max_w = max(max_w, _cell_width(cell.value))
+        # 列宽 = 内容宽度 + 余量，限制在 8~55 之间
+        ws.column_dimensions[col_letter].width = min(55, max(8, max_w + 2))
+
+    wb.save(study_path)
+    wb.close()
+    return True, "已生成 TOC.xlsx（TOC sheet 共 %d 行）。" % len(toc_sheet_rows)
 
 
 def _find_header_row_and_cols(ws):
@@ -351,7 +442,7 @@ def _apply_data_validations(ws, start_row, num_rows, col_name_to_idx, list_value
         dv = DataValidation(type="list", formula1=f"={qs}!$A$2:$A$200", allow_blank=True)
         ws.add_data_validation(dv)
         dv.add(f"{_col_letter(dev_col)}{start_row}:{_col_letter(dev_col)}{end_row}")
-    # Validators: 序列来自 List Values 的 A 列（初始值已在行数据中设为 Yi Yang）
+    # Validators: 序列来自 List Values 的 A 列（初始值已在行数据中设为 Jianling Ren）
     val_col = col_name_to_idx.get("Validators")
     if val_col:
         dv = DataValidation(type="list", formula1=f"={qs}!$A$2:$A$200", allow_blank=True)
@@ -403,9 +494,9 @@ def _append_deliverables_rows(ws, new_rows, col_name_to_idx, header_row, row_fil
         _apply_data_validations(ws, start_row, len(new_rows), col_name_to_idx)
 
 
-def update_pdt_deliverables(pdt_path, toc_path, setup_path, design_types, endpoints, analyte_names=None):
+def gen_pdt_deliverables(pdt_path, toc_path, setup_path, design_types, endpoints, analyte_names=None):
     """
-    备份原PDT，按TOC与用户选择更新 Deliverables sheet 中 Category=Output 的行。
+    备份原PDT，按TOC与用户选择生成 Deliverables sheet 中 Category=Output 的行。
 
     Args:
         pdt_path: 项目层面 PDT.xlsx 路径
@@ -459,6 +550,8 @@ def update_pdt_deliverables(pdt_path, toc_path, setup_path, design_types, endpoi
         wb.save(pdt_path)
         wb.close()
 
-        return True, f"已更新 Deliverables（共 {len(new_rows)} 行），备份：{os.path.basename(backup_path)}"
+        msg_line1 = f"1. PDT Deliverables 表单已增加{len(new_rows)}行 TFLs记录。"
+        msg_line2 = "2. 原PDT已备份至 99_archive 文件夹。"
+        return True, msg_line1 + "\n" + msg_line2
     except Exception as e:
         return False, str(e)

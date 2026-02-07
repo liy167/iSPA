@@ -361,9 +361,25 @@ class SASEGGUI:
         for page_id in ["aCRF", "SDTM", "ADaM", "TFLs", "M5", "pm"]:
             f = tk.Frame(self.main_container, bg="#f5f5f5")
             if page_id == "TFLs":
+                btn_row = tk.Frame(f, bg="#f5f5f5")
+                btn_row.pack(anchor="w", padx=16, pady=16)
+                btn_metadata = tk.Button(
+                    btn_row,
+                    text="Metadata Setup",
+                    command=lambda: None,  # 占位，可后续绑定
+                    width=14,
+                    font=("Microsoft YaHei UI", 10),
+                    bg="#9e9e9e",
+                    fg="white",
+                    relief=tk.FLAT,
+                    cursor="hand2",
+                    padx=10,
+                    pady=6
+                )
+                btn_metadata.pack(side=tk.LEFT, padx=(0, 8))
                 btn_pdt = tk.Button(
-                    f,
-                    text="1. 生成PDT",
+                    btn_row,
+                    text="PDT Gen",
                     command=lambda: show_pdt_dialog(self),
                     width=12,
                     font=("Microsoft YaHei UI", 10),
@@ -374,7 +390,7 @@ class SASEGGUI:
                     padx=10,
                     pady=6
                 )
-                btn_pdt.pack(anchor="w", padx=16, pady=16)
+                btn_pdt.pack(side=tk.LEFT)
             else:
                 lbl = tk.Label(
                     f,
