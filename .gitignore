@@ -18,6 +18,11 @@ env/
 Thumbs.db
 Desktop.ini
 
+# Office / 不纳入版本库
+*.pptx
+*.xlsx
+~$*
+
 # Misc
 新建 BMP 图像.bmp
 *.bmp
