@@ -129,10 +129,17 @@ def parse_analysis_set_from_docx(docx_path):
     return result
 
 
+def _strip_parens(s):
+    """去掉字符串中括号及其中的内容，支持中英文括号（）。"""
+    if not s:
+        return s
+    return re.sub(r"[（(].*?[）)]", "", s).strip()
+
+
 def write_analysis_set_xlsx(xlsx_path, rows):
     """
     将 (小段标题, 内容) 列表写入 Excel，与完整表格一致：TEXT、ROW、MASK、LINE_BREAK、INDENT、FILTER、FOOTNOTE。
-    FOOTNOTE 格式：「• 小标题：小标题内容」
+    TEXT：小标题去掉括号及括号内内容；FOOTNOTE：小标题：内容（无小黑点）。
     rows: list of (小段标题, 内容)
     """
     from openpyxl import Workbook
@@ -141,8 +148,9 @@ def write_analysis_set_xlsx(xlsx_path, rows):
     ws.title = "分析集"
     ws.append(["TEXT", "ROW", "MASK", "LINE_BREAK", "INDENT", "FILTER", "FOOTNOTE"])
     for row_num, (title, content) in enumerate(rows, start=1):
-        footnote = "• %s：%s" % (title, content) if content else "• %s：" % title
-        ws.append([title, row_num, "", "", "", "", footnote])
+        text_cell = _strip_parens(title)
+        footnote = "%s：%s" % (title, content) if content else "%s：" % title
+        ws.append([text_cell, row_num, "", "", "", "", footnote])
     d = os.path.dirname(xlsx_path)
     if d:
         os.makedirs(d, exist_ok=True)
