@@ -8,6 +8,8 @@ TFLs 页面 - Metadata Setup 弹窗逻辑（独立模块）
 """
 import os
 import re
+import shutil
+from datetime import datetime
 import tkinter as tk
 from tkinter import messagebox, filedialog
 
@@ -136,6 +138,25 @@ def _strip_parens(s):
     return re.sub(r"[（(].*?[）)]", "", s).strip()
 
 
+def _backup_existing_to_archive(file_path):
+    """
+    若 file_path 存在，则复制到同目录下的 99_archive 文件夹，文件名加年月日时分秒后缀。
+    返回备份后的路径，若原文件不存在则返回 None。
+    """
+    if not file_path or not os.path.isfile(file_path):
+        return None
+    dir_name = os.path.dirname(file_path)
+    base_name = os.path.basename(file_path)
+    name, ext = os.path.splitext(base_name)
+    suffix = datetime.now().strftime("%Y%m%d%H%M%S")
+    archive_dir = os.path.join(dir_name, "99_archive")
+    os.makedirs(archive_dir, exist_ok=True)
+    backup_name = "%s_%s%s" % (name, suffix, ext)
+    backup_path = os.path.join(archive_dir, backup_name)
+    shutil.copy2(file_path, backup_path)
+    return backup_path
+
+
 def write_analysis_set_xlsx(xlsx_path, rows):
     """
     将 (小段标题, 内容) 列表写入 Excel，与完整表格一致：TEXT、ROW、MASK、LINE_BREAK、INDENT、FILTER、FOOTNOTE。
@@ -217,7 +238,7 @@ def show_metadata_setup_dialog(gui):
             messagebox.showwarning("提示", "请填写或选择 T14_1-1_1.xlsx 路径。")
             return
         if os.path.isfile(path):
-            messagebox.showinfo("提示", "文件已存在，可直接点击「更新」打开审阅。\n" + path)
+            messagebox.showinfo("提示", "文件已存在，可直接点击「编辑」打开并手动编辑。\n" + path)
             return
         try:
             from openpyxl import Workbook
@@ -241,15 +262,15 @@ def show_metadata_setup_dialog(gui):
             except Exception as e:
                 messagebox.showerror("错误", "无法打开文件: %s" % e)
         else:
-            messagebox.showwarning("提示", "请先选择有效的 T14_1-1_1.xlsx 路径，或先点击「初版T14_1-1_1」生成后再打开。")
+            messagebox.showwarning("提示", "请先选择有效的 T14_1-1_1.xlsx 路径，或先点击「初版T14_1-1_1」生成后再编辑。")
 
     tk.Button(btn_frame, text="初版T14_1-1_1", command=run_init_t14, width=14, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 8))
-    tk.Button(btn_frame, text="更新", command=on_open_t14, width=10, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+    tk.Button(btn_frame, text="编辑", command=on_open_t14, width=10, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
 
-    # ---------- 第二步：分析集 XXXX 初始化 ----------
+    # ---------- 第二步：分析集 T14_1-1_2.xlsx 初始化设置 ----------
     step2_title = tk.Label(
         main,
-        text="第二步：分析集 XXXX 初始化",
+        text="第二步：分析集 T14_1-1_2.xlsx 初始化设置",
         font=("Microsoft YaHei UI", 10, "bold"),
         fg="#333333",
         bg="#f0f0f0",
@@ -259,7 +280,7 @@ def show_metadata_setup_dialog(gui):
     # SAP 文件（.docx）初始路径：前四个下拉框 + utility\documentation\03_statistics\
     default_sap_dir = os.path.join(base_path, "utility", "documentation", "03_statistics")
     default_metadata_dir = os.path.join(base_path, "utility", "metadata")
-    default_xlsx_step2 = os.path.join(default_metadata_dir, "分析集.xlsx")
+    default_xlsx_step2 = os.path.join(default_metadata_dir, "T14_1-1_2.xlsx")
 
     row_sap = tk.Frame(main, bg="#f0f0f0")
     row_sap.pack(anchor="w", fill=tk.X, pady=(0, 6))
@@ -281,14 +302,14 @@ def show_metadata_setup_dialog(gui):
 
     row_xlsx = tk.Frame(main, bg="#f0f0f0")
     row_xlsx.pack(anchor="w", fill=tk.X, pady=(0, 6))
-    tk.Label(row_xlsx, text="XXXX.xlsx（输出）：", font=("Microsoft YaHei UI", 9), width=22, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
+    tk.Label(row_xlsx, text="T14_1-1_2.xlsx：", font=("Microsoft YaHei UI", 9), width=22, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
     xlsx_entry = tk.Entry(row_xlsx, width=72, font=("Microsoft YaHei UI", 9))
     xlsx_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
     xlsx_entry.insert(0, default_xlsx_step2)
 
     def browse_xlsx():
         path = filedialog.asksaveasfilename(
-            title="选择或输入分析集 Excel 输出路径",
+            title="选择 T14_1-1_2.xlsx",
             filetypes=[("Excel", "*.xlsx"), ("All", "*.*")],
             initialdir=os.path.dirname(default_xlsx_step2) or base_path,
             defaultextension=".xlsx",
@@ -302,8 +323,8 @@ def show_metadata_setup_dialog(gui):
     btn_frame2 = tk.Frame(main, bg="#f0f0f0")
     btn_frame2.pack(anchor="w", pady=(14, 0))
 
-    def run_parse_analysis_set():
-        """从 SAP 文档（.docx）解析「分析集」章节并生成 XXXX.xlsx（两列：小标题、内容）。"""
+    def run_init_t14_1_1_2():
+        """初版T14_1-1_2：从 SAP 文档解析「分析集」章节并生成 T14_1-1_2.xlsx。"""
         sap_path = sap_entry.get().strip()
         xlsx_path = xlsx_entry.get().strip()
         if not sap_path:
@@ -313,16 +334,20 @@ def show_metadata_setup_dialog(gui):
             messagebox.showerror("错误", "SAP 文件不存在：%s" % sap_path)
             return
         if not xlsx_path:
-            messagebox.showwarning("提示", "请指定输出的 XXXX.xlsx 路径。")
+            messagebox.showwarning("提示", "请填写或选择 T14_1-1_2.xlsx 路径。")
             return
         try:
+            if os.path.isfile(xlsx_path):
+                backup_path = _backup_existing_to_archive(xlsx_path)
+                if backup_path:
+                    gui.update_status("已备份原文件至：%s" % backup_path)
             rows = parse_analysis_set_from_docx(sap_path)
             if not rows:
                 messagebox.showwarning("提示", "未在「分析集」章节下解析到任何小段标题与内容。请确认文档中该章节内的小段标题为「小黑点」列表项（项目符号）。")
                 return
             write_analysis_set_xlsx(xlsx_path, rows)
-            gui.update_status("已生成分析集 Excel：%s（共 %d 条）" % (xlsx_path, len(rows)))
-            if messagebox.askyesno("成功", "已生成分析集 Excel（共 %d 条）。\n\n是否审阅并打开生成文件？" % len(rows)):
+            gui.update_status("已初始化 T14_1-1_2.xlsx：%s" % xlsx_path)
+            if messagebox.askyesno("成功", "已生成初版 T14_1-1_2.xlsx（共 %d 条）。\n\n是否审阅并打开生成文件？" % len(rows)):
                 try:
                     os.startfile(xlsx_path)
                     gui.update_status("已打开: " + os.path.basename(xlsx_path))
@@ -332,7 +357,7 @@ def show_metadata_setup_dialog(gui):
             messagebox.showerror("错误", "解析或生成失败：%s" % e)
             gui.update_status("分析集初始化失败：%s" % e)
 
-    def on_open_analysis_set_xlsx():
+    def on_open_t14_1_1_2():
         p = xlsx_entry.get().strip()
         if p and os.path.isfile(p):
             try:
@@ -341,7 +366,7 @@ def show_metadata_setup_dialog(gui):
             except Exception as e:
                 messagebox.showerror("错误", "无法打开文件: %s" % e)
         else:
-            messagebox.showwarning("提示", "请先执行「解析并生成Excel」生成分析集 xlsx 后再打开。")
+            messagebox.showwarning("提示", "请先选择有效的 T14_1-1_2.xlsx 路径，或先点击「初版T14_1-1_2」生成后再编辑。")
 
-    tk.Button(btn_frame2, text="解析并生成Excel", command=run_parse_analysis_set, width=16, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 8))
-    tk.Button(btn_frame2, text="打开", command=on_open_analysis_set_xlsx, width=10, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+    tk.Button(btn_frame2, text="初版T14_1-1_2", command=run_init_t14_1_1_2, width=14, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 8))
+    tk.Button(btn_frame2, text="编辑", command=on_open_t14_1_1_2, width=10, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
