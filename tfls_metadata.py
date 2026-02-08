@@ -249,7 +249,12 @@ def show_metadata_setup_dialog(gui):
             wb.active.title = "受试者分布"
             wb.save(path)
             gui.update_status("已初始化 T14_1-1_1.xlsx：%s" % path)
-            messagebox.showinfo("成功", "已生成初版 T14_1-1_1.xlsx：\n" + path)
+            if messagebox.askyesno("成功", "已生成初版 T14_1-1_1.xlsx。\n\n是否审阅并打开生成文件？"):
+                try:
+                    os.startfile(path)
+                    gui.update_status("已打开: " + os.path.basename(path))
+                except Exception as e:
+                    messagebox.showerror("错误", "无法打开文件：%s" % e)
         except Exception as e:
             messagebox.showerror("错误", "初始化失败：%s" % e)
 
