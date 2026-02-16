@@ -9,6 +9,7 @@ from tkinter import ttk, messagebox
 from pywinauto.application import Application
 from tfls_pdt import show_pdt_dialog
 from tfls_metadata import show_metadata_setup_dialog
+from tfls_init_pgm import run_initial_pgm
 from pywinauto.keyboard import send_keys
 
 # 忽略 UserWarning 警告
@@ -392,7 +393,49 @@ class SASEGGUI:
                     padx=10,
                     pady=6
                 )
-                btn_pdt.pack(side=tk.LEFT)
+                btn_pdt.pack(side=tk.LEFT, padx=(0, 8))
+                btn_pgm_init = tk.Button(
+                    btn_row,
+                    text="Initial\nPGM",
+                    command=lambda: run_initial_pgm(self),
+                    width=btn_width,
+                    font=("Microsoft YaHei UI", 10),
+                    bg="#9e9e9e",
+                    fg="white",
+                    relief=tk.FLAT,
+                    cursor="hand2",
+                    padx=10,
+                    pady=6
+                )
+                btn_pgm_init.pack(side=tk.LEFT, padx=(0, 8))
+                btn_batch_run = tk.Button(
+                    btn_row,
+                    text="Batch\nRun",
+                    command=lambda: None,  # 稍后补充
+                    width=btn_width,
+                    font=("Microsoft YaHei UI", 10),
+                    bg="#9e9e9e",
+                    fg="white",
+                    relief=tk.FLAT,
+                    cursor="hand2",
+                    padx=10,
+                    pady=6
+                )
+                btn_batch_run.pack(side=tk.LEFT, padx=(0, 8))
+                btn_tfls_combine = tk.Button(
+                    btn_row,
+                    text="TFLs\nCombine",
+                    command=lambda: None,  # 稍后补充
+                    width=btn_width,
+                    font=("Microsoft YaHei UI", 10),
+                    bg="#9e9e9e",
+                    fg="white",
+                    relief=tk.FLAT,
+                    cursor="hand2",
+                    padx=10,
+                    pady=6
+                )
+                btn_tfls_combine.pack(side=tk.LEFT)
             else:
                 lbl = tk.Label(
                     f,
