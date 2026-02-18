@@ -3,7 +3,7 @@
 TFLs 页面 - Metadata Setup 弹窗逻辑（独立模块）
 
 主界面在 TFLs 页面提供「Metadata Setup」按钮，绑定 command=lambda: show_metadata_setup_dialog(gui)。
-第一步：受试者分布 T14_1-1_1.xlsx 初始化设置。
+第一步：受试者分布 T14_1-1_1.xlsx 初始化设置（按 Meta_Data表格制作流程：01/04/05/06 四部分）。
 第二步：分析集 XXXX 初始化（从 Word 文档「分析集」章节解析小标题与内容，写入 Excel）。
 """
 import os
@@ -12,6 +12,243 @@ import shutil
 from datetime import datetime
 import tkinter as tk
 from tkinter import messagebox, filedialog
+
+
+# ---------- 第一步：受试者分布 T14_1-1_1 数据解析与生成 ----------
+
+# 01部分固定文本（第1-2行）
+_T14_01_ROW1 = "筛选"
+_T14_01_ROW2 = "入选的受试者"
+# 04部分固定三行（仅当存在 RANDFL 时）
+_T14_04_ROWS = ("随机化", "随机接受研究治疗", "随机未接受研究治疗")
+# 05部分
+_T14_05_HEADER = "完成研究治疗汇总"
+_T14_05_TITLE = "终止研究治疗"
+# 06部分
+_T14_06_COMPLETE = "完成随访"
+_T14_06_WITHDRAW = "退出随访"
+_T14_06_EXTRA = "随机未接受研究治疗"
+
+# EDCDEF_code 中 治疗结束原因 的 CODE_NAME_CHN 匹配
+_EDC_DCTREAS_NAMES = ("治疗结束主要原因", "治疗结束原因")
+# EDCDEF_code 中 随访结束原因 的 CODE_NAME_CHN 匹配
+_EDC_FOLLOWUP_NAMES = ("随访结束原因", "随访结束主要原因", "研究结束原因", "原因结束主要原因")
+
+
+def _find_excel_column(df, candidates):
+    """在 DataFrame 列名中查找匹配项（忽略大小写、首尾空格）。返回列名或 None。"""
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    for cand in candidates:
+        k = cand.strip().lower()
+        for col_key, col_orig in cols.items():
+            if k in col_key or col_key in k:
+                return col_orig
+    return None
+
+
+def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
+    """
+    从 ADaM 数据集说明 Excel 的 variables sheet 中判断 ADSL 是否存在 RANDFL/ENRLFL。
+    检查路径：variables sheet → ADSL 数据集 → RANDFL 且 Study Specific = Y，或 ENRLFL。
+    返回: "randfl" | "enrlfl" | None
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        raise RuntimeError("请先安装 pandas：pip install pandas")
+
+    xl = pd.ExcelFile(adam_excel_path)
+    # 查找 variables 或 Variables 等 sheet
+    sheet_name = None
+    for s in xl.sheet_names:
+        if "variable" in s.lower():
+            sheet_name = s
+            break
+    if sheet_name is None:
+        raise ValueError("ADaM 说明文件中未找到 variables 相关 sheet。")
+
+    df = pd.read_excel(adam_excel_path, sheet_name=sheet_name, header=0)
+    if df.empty:
+        raise ValueError("variables sheet 为空。")
+
+    col_dataset = _find_excel_column(df, ("Dataset", "Data Set", "数据集", "Dataset Name"))
+    col_var = _find_excel_column(df, ("Variable", "变量", "Variable Name"))
+    col_study_spec = _find_excel_column(df, ("Study Specific", "StudySpecific", "Study Specific Flag"))
+
+    if col_dataset is None or col_var is None:
+        raise ValueError("variables sheet 中未找到 Dataset 或 Variable 列。")
+
+    # 筛选 ADSL
+    ds_col = df[col_dataset].astype(str).str.strip()
+    adsl_mask = ds_col.str.upper().str.contains("ADSL", na=False)
+    adsl_df = df.loc[adsl_mask]
+
+    if adsl_df.empty:
+        return None
+
+    var_col = adsl_df[col_var].astype(str).str.strip()
+
+    # 优先检查 RANDFL 且 Study Specific = Y
+    randfl_mask = var_col.str.upper() == "RANDFL"
+    if randfl_mask.any():
+        if col_study_spec is not None:
+            ss = adsl_df.loc[randfl_mask, col_study_spec].astype(str).str.strip().str.upper()
+            if (ss == "Y").any():
+                return "randfl"
+        else:
+            return "randfl"
+
+    # 否则检查 ENRLFL
+    enrlfl_mask = var_col.str.upper() == "ENRLFL"
+    if enrlfl_mask.any():
+        return "enrlfl"
+
+    return None
+
+
+def read_edcdef_code(edc_path):
+    """
+    读取 EDCDEF_code 数据集（SAS 或 Excel 导出），按 CODE_NAME_CHN 提取 CODE_ORDER、CODE_LABEL。
+    返回: dict[str, list[(order, label)]]
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        raise RuntimeError("请先安装 pandas：pip install pandas")
+
+    if not edc_path or not os.path.isfile(edc_path):
+        return {}
+
+    ext = os.path.splitext(edc_path)[1].lower()
+    if ext == ".sas7bdat":
+        try:
+            import pyreadstat
+            df, _ = pyreadstat.read_sas7bdat(edc_path)
+        except ImportError:
+            raise RuntimeError("读取 SAS 数据集需要 pyreadstat：pip install pyreadstat")
+    elif ext in (".xlsx", ".xls"):
+        df = pd.read_excel(edc_path, header=0)
+    else:
+        return {}
+
+    if df is None or df.empty:
+        return {}
+
+    col_name = _find_excel_column(df, ("CODE_NAME_CHN", "Code_Name_Chn", "code_name_chn"))
+    col_order = _find_excel_column(df, ("CODE_ORDER", "Code_Order", "code_order"))
+    col_label = _find_excel_column(df, ("CODE_LABEL", "Code_Label", "code_label"))
+
+    if col_name is None or col_label is None:
+        return {}
+
+    result = {}
+    for _, row in df.iterrows():
+        name = str(row.get(col_name, "") or "").strip()
+        if not name:
+            continue
+        order_val = row.get(col_order) if col_order else 0
+        try:
+            order_val = float(order_val) if order_val is not None and str(order_val).strip() else 0
+        except (ValueError, TypeError):
+            order_val = 0
+        label = str(row.get(col_label, "") or "").strip()
+        if name not in result:
+            result[name] = []
+        result[name].append((order_val, label))
+
+    for k in result:
+        result[k].sort(key=lambda x: x[0])
+
+    return result
+
+
+def _get_dctreas_reasons(edc_data):
+    """从 EDCDEF 中提取治疗结束原因列表（按 CODE_ORDER 排序）。"""
+    for k, items in edc_data.items():
+        for name in _EDC_DCTREAS_NAMES:
+            if name in k or k in name:
+                return [lb for _, lb in items]
+    return []
+
+
+def _get_followup_reasons(edc_data):
+    """从 EDCDEF 中提取随访结束原因列表（按 CODE_ORDER 排序）。"""
+    for k, items in edc_data.items():
+        for name in _EDC_FOLLOWUP_NAMES:
+            if name in k or k in name:
+                return [lb for _, lb in items]
+    return []
+
+
+def build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons):
+    """
+    按 Meta_Data 流程构建 T14_1-1_1 受试者分布的所有行。
+    randfl_or_enrlfl: "randfl" | "enrlfl" | None
+    dct_reasons: 治疗结束原因列表
+    followup_reasons: 随访结束原因列表
+    返回: list of dict with keys: TEXT, ROW, MASK, LINE_BREAK, INDENT, FILTER, FOOTNOTE
+    """
+    rows = []
+    row_num = 0
+
+    # 01部分
+    row_num += 1
+    rows.append({"TEXT": _T14_01_ROW1, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    row_num += 1
+    rows.append({"TEXT": _T14_01_ROW2, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    if randfl_or_enrlfl == "randfl":
+        text_3 = "筛选成功为随机受试者"
+    elif randfl_or_enrlfl == "enrlfl":
+        text_3 = "筛选成功为入组受试者"
+    else:
+        text_3 = "筛选成功为随机受试者"  # 默认
+    row_num += 1
+    rows.append({"TEXT": text_3, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+
+    # 04部分（仅当存在 RANDFL 时）
+    if randfl_or_enrlfl == "randfl":
+        for t in _T14_04_ROWS:
+            row_num += 1
+            rows.append({"TEXT": t, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+
+    # 05部分
+    row_num += 1
+    rows.append({"TEXT": _T14_05_HEADER, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    row_num += 1
+    rows.append({"TEXT": _T14_05_TITLE, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    for idx, reason in enumerate(dct_reasons):
+        row_num += 1
+        rows.append({"TEXT": reason, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "DCTREAS=%d" % idx, "FOOTNOTE": ""})
+
+    # 06部分
+    row_num += 1
+    rows.append({"TEXT": _T14_06_COMPLETE, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    row_num += 1
+    rows.append({"TEXT": _T14_06_WITHDRAW, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    for idx, reason in enumerate(followup_reasons):
+        row_num += 1
+        reason_filter = "退出原因=%d" % idx
+        rows.append({"TEXT": reason, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": reason_filter, "FOOTNOTE": ""})
+        row_num += 1
+        extra_filter = (reason_filter + " and " if reason_filter else "") + "RANDFL='Y' and TRTSDT NE ."
+        rows.append({"TEXT": _T14_06_EXTRA, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": extra_filter, "FOOTNOTE": ""})
+
+    return rows
+
+
+def write_t14_1_1_1_xlsx(xlsx_path, rows):
+    """将受试者分布行写入 Excel，列：TEXT, ROW, MASK, LINE_BREAK, INDENT, FILTER, FOOTNOTE。"""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "受试者分布"
+    ws.append(["TEXT", "ROW", "MASK", "LINE_BREAK", "INDENT", "FILTER", "FOOTNOTE"])
+    for r in rows:
+        ws.append([r.get("TEXT", ""), r.get("ROW", 0), r.get("MASK", ""), r.get("LINE_BREAK", ""), r.get("INDENT", ""), r.get("FILTER", ""), r.get("FOOTNOTE", "")])
+    d = os.path.dirname(xlsx_path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    wb.save(xlsx_path)
 
 
 # ---------- 第二步：分析集 Word 解析与 Excel 生成 ----------
@@ -186,7 +423,7 @@ def show_metadata_setup_dialog(gui):
     """
     dlg = tk.Toplevel(gui.root)
     dlg.title("Metadata Setup")
-    dlg.geometry("1200x420")
+    dlg.geometry("1200x520")
     dlg.resizable(True, True)
     dlg.transient(gui.root)
     dlg.grab_set()
@@ -208,6 +445,12 @@ def show_metadata_setup_dialog(gui):
     # 前四个下拉框拼接路径（与 PDT Gen 一致）
     base_path = gui.get_current_path()
     default_t14 = os.path.join(base_path, "utility", "metadata", "T14_1-1_1.xlsx")
+    default_adam_dir = os.path.join(base_path, "utility", "documents")
+    if not os.path.isdir(default_adam_dir):
+        default_adam_dir = os.path.join(base_path, "utility", "documentation")
+    default_edc_dir = os.path.join(base_path, "utility", "metadata")
+    if not os.path.isdir(default_edc_dir):
+        default_edc_dir = os.path.join(base_path, "metadata")
 
     row_t14 = tk.Frame(main, bg="#f0f0f0")
     row_t14.pack(anchor="w", fill=tk.X, pady=(0, 6))
@@ -228,28 +471,92 @@ def show_metadata_setup_dialog(gui):
 
     tk.Button(row_t14, text="浏览...", command=browse_t14, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
 
+    row_adam = tk.Frame(main, bg="#f0f0f0")
+    row_adam.pack(anchor="w", fill=tk.X, pady=(0, 6))
+    tk.Label(row_adam, text="ADaM 数据集说明（Excel）：", font=("Microsoft YaHei UI", 9), width=22, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
+    adam_entry = tk.Entry(row_adam, width=72, font=("Microsoft YaHei UI", 9))
+    adam_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+
+    def browse_adam():
+        path = filedialog.askopenfilename(
+            title="选择 ADaM 数据集说明文件（Excel）",
+            filetypes=[("Excel", "*.xlsx"), ("Excel 97", "*.xls"), ("All", "*.*")],
+            initialdir=default_adam_dir if os.path.isdir(default_adam_dir) else base_path,
+        )
+        if path:
+            adam_entry.delete(0, tk.END)
+            adam_entry.insert(0, path)
+
+    tk.Button(row_adam, text="浏览...", command=browse_adam, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+
+    row_edc = tk.Frame(main, bg="#f0f0f0")
+    row_edc.pack(anchor="w", fill=tk.X, pady=(0, 6))
+    tk.Label(row_edc, text="EDCDEF_code（SAS/Excel）：", font=("Microsoft YaHei UI", 9), width=22, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
+    edc_entry = tk.Entry(row_edc, width=72, font=("Microsoft YaHei UI", 9))
+    edc_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+    default_edc = os.path.join(default_edc_dir, "EDCDEF_code.sas7bdat")
+    if not os.path.isfile(default_edc):
+        default_edc = os.path.join(default_edc_dir, "EDCDEF_code.xlsx")
+    edc_entry.insert(0, default_edc if os.path.isfile(default_edc) else "")
+
+    def browse_edc():
+        path = filedialog.askopenfilename(
+            title="选择 EDCDEF_code（.sas7bdat 或 .xlsx）",
+            filetypes=[("SAS 数据集", "*.sas7bdat"), ("Excel", "*.xlsx"), ("All", "*.*")],
+            initialdir=default_edc_dir if os.path.isdir(default_edc_dir) else base_path,
+        )
+        if path:
+            edc_entry.delete(0, tk.END)
+            edc_entry.insert(0, path)
+
+    tk.Button(row_edc, text="浏览...", command=browse_edc, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+
     btn_frame = tk.Frame(main, bg="#f0f0f0")
     btn_frame.pack(anchor="w", pady=(14, 0))
 
     def run_init_t14():
-        """初版T14_1-1_1：若文件不存在则创建 utility\\metadata 目录并生成空白 T14_1-1_1.xlsx。"""
+        """初版T14_1-1_1：按 Meta_Data 流程生成 01/04/05/06 四部分。若文件已存在则备份后覆盖。"""
         path = t14_entry.get().strip()
         if not path:
             messagebox.showwarning("提示", "请填写或选择 T14_1-1_1.xlsx 路径。")
             return
-        if os.path.isfile(path):
-            messagebox.showinfo("提示", "文件已存在，可直接点击「编辑」打开并手动编辑。\n" + path)
-            return
+        adam_path = adam_entry.get().strip()
+        edc_path = edc_entry.get().strip()
+
+        randfl_or_enrlfl = None
+        if adam_path and os.path.isfile(adam_path):
+            try:
+                randfl_or_enrlfl = parse_adam_spec_for_randfl_enrlfl(adam_path)
+                gui.update_status("ADaM 解析：%s" % (randfl_or_enrlfl or "未检测到 RANDFL/ENRLFL"))
+            except Exception as e:
+                messagebox.showwarning("ADaM 解析", "无法解析 ADaM 说明文件，将使用默认（随机受试者）：%s" % e)
+                randfl_or_enrlfl = "randfl"
+        else:
+            randfl_or_enrlfl = "randfl"
+
+        edc_data = {}
+        if edc_path and os.path.isfile(edc_path):
+            try:
+                edc_data = read_edcdef_code(edc_path)
+                gui.update_status("EDCDEF 已读取")
+            except Exception as e:
+                messagebox.showwarning("EDCDEF 读取", "无法读取 EDCDEF_code，05/06 部分将为空：%s" % e)
+
+        dct_reasons = _get_dctreas_reasons(edc_data)
+        followup_reasons = _get_followup_reasons(edc_data)
+
         try:
-            from openpyxl import Workbook
+            if os.path.isfile(path):
+                backup_path = _backup_existing_to_archive(path)
+                if backup_path:
+                    gui.update_status("已备份原文件至：%s" % backup_path)
             d = os.path.dirname(path)
             if d:
                 os.makedirs(d, exist_ok=True)
-            wb = Workbook()
-            wb.active.title = "受试者分布"
-            wb.save(path)
-            gui.update_status("已初始化 T14_1-1_1.xlsx：%s" % path)
-            if messagebox.askyesno("成功", "已生成初版 T14_1-1_1.xlsx。\n\n是否审阅并打开生成文件？"):
+            rows = build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons)
+            write_t14_1_1_1_xlsx(path, rows)
+            gui.update_status("已初始化 T14_1-1_1.xlsx（共 %d 行）：%s" % (len(rows), path))
+            if messagebox.askyesno("成功", "已生成初版 T14_1-1_1.xlsx（01/04/05/06 四部分，共 %d 行）。\n\n是否审阅并打开生成文件？" % len(rows)):
                 try:
                     os.startfile(path)
                     gui.update_status("已打开: " + os.path.basename(path))
