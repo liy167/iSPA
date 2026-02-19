@@ -39,6 +39,8 @@ _T14_06_EXTRA = "随机未接受研究治疗"
 _EDC_DCTREAS_NAMES = ("治疗结束主要原因", "治疗结束原因")
 # EDCDEF_code 中 随访结束原因 的 CODE_NAME_CHN 匹配
 _EDC_FOLLOWUP_NAMES = ("随访结束原因", "随访结束主要原因", "研究结束原因", "原因结束主要原因")
+# EDCDEF_code 中 筛选失败原因 的 CODE_NAME_CHN 匹配（TEXT=CODE_LABEL，顺序=CODE_ORDER）
+_EDC_SCREEN_FAIL_NAMES = ("筛选结束原因",)
 
 
 def _find_excel_column(df, candidates):
@@ -192,12 +194,22 @@ def _get_followup_reasons(edc_data):
     return []
 
 
-def build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons):
+def _get_screen_fail_reasons(edc_data):
+    """从 EDCDEF 中提取筛选失败原因列表（CODE_NAME_CHN=筛选结束原因，按 CODE_ORDER 排序，TEXT 取 CODE_LABEL）。"""
+    for k, items in edc_data.items():
+        for name in _EDC_SCREEN_FAIL_NAMES:
+            if name in k or k in name:
+                return [lb for _, lb in items]
+    return []
+
+
+def build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons, screen_fail_reasons=None):
     """
     按 Meta_Data 流程构建 T14_1-1_1 受试者分布的所有行。
     randfl_or_enrlfl: "randfl" | "enrlfl" | None
     dct_reasons: 治疗结束原因列表
     followup_reasons: 随访结束原因列表
+    screen_fail_reasons: 筛选失败原因列表（来自 EDCDEF CODE_NAME_CHN=筛选结束原因，按 CODE_ORDER）
     返回: list of dict with keys: TEXT, ROW, MASK, LINE_BREAK, INDENT, SEC, TRT_I, DSNIN, TRTSUBN, TRTSUBC, FILTER, FOOTNOTE
     """
     def _empty_meta():
@@ -219,6 +231,27 @@ def build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons):
         "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
         "FILTER": _T14_01_FILTER_ROW2, "FOOTNOTE": "",
     })
+
+    # 筛选失败原因（第2行之后、第3行之前）：标题行 + 各原因子行，数据来源 EDCDEF CODE_NAME_CHN=筛选结束原因
+    if screen_fail_reasons is None:
+        screen_fail_reasons = []
+    row_num += 1
+    rows.append({
+        "TEXT": "筛选失败原因", "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
+        "FILTER": "0", "FOOTNOTE": "",
+    })
+    for reason in screen_fail_reasons:
+        row_num += 1
+        # SAS 字符串内单引号需双写
+        reason_esc = (reason or "").replace("'", "''")
+        filter_val = "%s and SCFAILRE='%s'" % (_T14_01_FILTER_ROW2, reason_esc)
+        rows.append({
+            "TEXT": reason or "", "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "1",
+            "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
+            "FILTER": filter_val, "FOOTNOTE": "",
+        })
+
     if randfl_or_enrlfl == "randfl":
         text_3 = "筛选成功为随机受试者"
     elif randfl_or_enrlfl == "enrlfl":
@@ -574,6 +607,7 @@ def show_metadata_setup_dialog(gui):
 
         dct_reasons = _get_dctreas_reasons(edc_data)
         followup_reasons = _get_followup_reasons(edc_data)
+        screen_fail_reasons = _get_screen_fail_reasons(edc_data)
 
         try:
             if os.path.isfile(path):
@@ -583,7 +617,7 @@ def show_metadata_setup_dialog(gui):
             d = os.path.dirname(path)
             if d:
                 os.makedirs(d, exist_ok=True)
-            rows = build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons)
+            rows = build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons, screen_fail_reasons)
             write_t14_1_1_1_xlsx(path, rows)
             gui.update_status("已初始化 T14_1-1_1.xlsx（共 %d 行）：%s" % (len(rows), path))
             if messagebox.askyesno("成功", "已生成初版 T14_1-1_1.xlsx（01/04/05/06 四部分，共 %d 行）。\n\n是否审阅并打开生成文件？" % len(rows)):

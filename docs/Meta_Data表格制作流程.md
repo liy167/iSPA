@@ -24,6 +24,7 @@
 | 行号 | 内容 | 赋值方式 | 特殊说明 |
 |:---|:---|:---|:---|
 | 第1-2行 | 固定文本 | 直接硬写 | 见下表列结构及取值 |
+| 第2行后 | 筛选失败原因 | 来自 EDCDEF | 标题行 + 各原因子行，TEXT/顺序取自 CODE_NAME_CHN=「筛选结束原因」的 CODE_LABEL/CODE_ORDER |
 | 第3行 | 动态判断 | 条件赋值 | 根据ADSL数据集说明文件中，是否存在RANDFL变量决定 |
 
 #### 固定列结构（必含列名）
@@ -39,6 +40,23 @@
 
 - **第1行**：筛选受试者（Screened Subjects），FILTER 为合计/Total 匹配。
 - **第2行**：筛选失败受试者（Screening Failed Subjects），FILTER 在上一行基础上增加 `scfailfl='Y'` 条件。
+
+#### 筛选失败原因（第2行之后、第3行之前）
+
+本块紧接第2行，在「筛选成功为随机/入组受试者」（第3行）之前插入：先一行**标题行**「筛选失败原因」，再按顺序若干行**具体原因**。
+
+**数据来源：** EDCDEF_code 数据集（如 `edcdef_code.sas7bdat`）  
+- 筛选条件：`CODE_NAME_CHN = "筛选结束原因"`  
+- **TEXT 列**：取该条件下的 `CODE_LABEL` 值（如：不良事件、不符合入选标准/符合排除标准、失访、受试者要求退出、其他）。  
+- **排列顺序**：按 `CODE_ORDER` 升序。
+
+| 行类型 | TEXT | INDENT | SEC | DSNIN | TRTSUBN | TRTSUBC | FILTER |
+|:---|:---|:---|:---|:---|:---|:---|:---|
+| 标题行 | 筛选失败原因 | 空 | 01_scr | adsl | trt01pn | trt01p | 0 |
+| 各原因行 | CODE_LABEL 值 | 1 | 01_scr | adsl | trt01pn | trt01p | `prxmatch(...) and (scfailfl='Y') and SCFAILRE='该行原因文本'` |
+
+- 标题行 FILTER 为 `0`，表示仅作分组标题。
+- 各原因行 FILTER 在「筛选失败受试者」条件基础上增加 `SCFAILRE='[该行 TEXT]'`，与 ADSL 中筛选失败原因变量一致。
 
 #### 第3行判断逻辑
 **检查路径：** variables sheet → ADSL数据集 → 查找"RANDFL"变量且确认"Study Specific"列标记为"Y"
