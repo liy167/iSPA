@@ -16,9 +16,15 @@ from tkinter import messagebox, filedialog
 
 # ---------- 第一步：受试者分布 T14_1-1_1 数据解析与生成 ----------
 
-# 01部分固定文本（第1-2行）
-_T14_01_ROW1 = "筛选"
-_T14_01_ROW2 = "入选的受试者"
+# 01部分固定文本与列取值（第1-2行，见 Meta_Data表格制作流程.md）
+_T14_01_ROW1 = "筛选受试者"
+_T14_01_ROW2 = "筛选失败受试者"
+_T14_01_SEC = "01_scr"
+_T14_01_DSNIN = "adsl"
+_T14_01_TRTSUBN = "trt01pn"
+_T14_01_TRTSUBC = "trt01p"
+_T14_01_FILTER_ROW1 = "prxmatch('/^(合计|total)\\s*$/i', trt01p)"
+_T14_01_FILTER_ROW2 = "prxmatch('/^(合计|total)\\s*$/i', trt01p) and (scfailfl='Y')"
 # 04部分固定三行（仅当存在 RANDFL 时）
 _T14_04_ROWS = ("随机化", "随机接受研究治疗", "随机未接受研究治疗")
 # 05部分
@@ -192,16 +198,27 @@ def build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons):
     randfl_or_enrlfl: "randfl" | "enrlfl" | None
     dct_reasons: 治疗结束原因列表
     followup_reasons: 随访结束原因列表
-    返回: list of dict with keys: TEXT, ROW, MASK, LINE_BREAK, INDENT, FILTER, FOOTNOTE
+    返回: list of dict with keys: TEXT, ROW, MASK, LINE_BREAK, INDENT, SEC, TRT_I, DSNIN, TRTSUBN, TRTSUBC, FILTER, FOOTNOTE
     """
+    def _empty_meta():
+        return {"SEC": "", "TRT_I": "", "DSNIN": "", "TRTSUBN": "", "TRTSUBC": ""}
+
     rows = []
     row_num = 0
 
-    # 01部分
+    # 01部分（第1-2行按 Meta_Data 流程：SEC/DSNIN/TRTSUBN/TRTSUBC/FILTER）
     row_num += 1
-    rows.append({"TEXT": _T14_01_ROW1, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    rows.append({
+        "TEXT": _T14_01_ROW1, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
+        "FILTER": _T14_01_FILTER_ROW1, "FOOTNOTE": "",
+    })
     row_num += 1
-    rows.append({"TEXT": _T14_01_ROW2, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    rows.append({
+        "TEXT": _T14_01_ROW2, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
+        "FILTER": _T14_01_FILTER_ROW2, "FOOTNOTE": "",
+    })
     if randfl_or_enrlfl == "randfl":
         text_3 = "筛选成功为随机受试者"
     elif randfl_or_enrlfl == "enrlfl":
@@ -209,48 +226,55 @@ def build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons):
     else:
         text_3 = "筛选成功为随机受试者"  # 默认
     row_num += 1
-    rows.append({"TEXT": text_3, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    em = _empty_meta()
+    rows.append({"TEXT": text_3, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **em, "FILTER": "", "FOOTNOTE": ""})
 
     # 04部分（仅当存在 RANDFL 时）
     if randfl_or_enrlfl == "randfl":
         for t in _T14_04_ROWS:
             row_num += 1
-            rows.append({"TEXT": t, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+            em = _empty_meta()
+            rows.append({"TEXT": t, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **em, "FILTER": "", "FOOTNOTE": ""})
 
     # 05部分
     row_num += 1
-    rows.append({"TEXT": _T14_05_HEADER, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    em = _empty_meta()
+    rows.append({"TEXT": _T14_05_HEADER, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **em, "FILTER": "", "FOOTNOTE": ""})
     row_num += 1
-    rows.append({"TEXT": _T14_05_TITLE, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    rows.append({"TEXT": _T14_05_TITLE, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": "", "FOOTNOTE": ""})
     for idx, reason in enumerate(dct_reasons):
         row_num += 1
-        rows.append({"TEXT": reason, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "DCTREAS=%d" % idx, "FOOTNOTE": ""})
+        rows.append({"TEXT": reason, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": "DCTREAS=%d" % idx, "FOOTNOTE": ""})
 
     # 06部分
     row_num += 1
-    rows.append({"TEXT": _T14_06_COMPLETE, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    rows.append({"TEXT": _T14_06_COMPLETE, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": "", "FOOTNOTE": ""})
     row_num += 1
-    rows.append({"TEXT": _T14_06_WITHDRAW, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": "", "FOOTNOTE": ""})
+    rows.append({"TEXT": _T14_06_WITHDRAW, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": "", "FOOTNOTE": ""})
     for idx, reason in enumerate(followup_reasons):
         row_num += 1
         reason_filter = "退出原因=%d" % idx
-        rows.append({"TEXT": reason, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": reason_filter, "FOOTNOTE": ""})
+        rows.append({"TEXT": reason, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": reason_filter, "FOOTNOTE": ""})
         row_num += 1
         extra_filter = (reason_filter + " and " if reason_filter else "") + "RANDFL='Y' and TRTSDT NE ."
-        rows.append({"TEXT": _T14_06_EXTRA, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", "FILTER": extra_filter, "FOOTNOTE": ""})
+        rows.append({"TEXT": _T14_06_EXTRA, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": extra_filter, "FOOTNOTE": ""})
 
     return rows
 
 
 def write_t14_1_1_1_xlsx(xlsx_path, rows):
-    """将受试者分布行写入 Excel，列：TEXT, ROW, MASK, LINE_BREAK, INDENT, FILTER, FOOTNOTE。"""
+    """将受试者分布行写入 Excel，列：TEXT, ROW, MASK, LINE_BREAK, INDENT, SEC, TRT_I, DSNIN, TRTSUBN, TRTSUBC, FILTER, FOOTNOTE。"""
     from openpyxl import Workbook
     wb = Workbook()
     ws = wb.active
     ws.title = "受试者分布"
-    ws.append(["TEXT", "ROW", "MASK", "LINE_BREAK", "INDENT", "FILTER", "FOOTNOTE"])
+    ws.append(["TEXT", "ROW", "MASK", "LINE_BREAK", "INDENT", "SEC", "TRT_I", "DSNIN", "TRTSUBN", "TRTSUBC", "FILTER", "FOOTNOTE"])
     for r in rows:
-        ws.append([r.get("TEXT", ""), r.get("ROW", 0), r.get("MASK", ""), r.get("LINE_BREAK", ""), r.get("INDENT", ""), r.get("FILTER", ""), r.get("FOOTNOTE", "")])
+        ws.append([
+            r.get("TEXT", ""), r.get("ROW", 0), r.get("MASK", ""), r.get("LINE_BREAK", ""), r.get("INDENT", ""),
+            r.get("SEC", ""), r.get("TRT_I", ""), r.get("DSNIN", ""), r.get("TRTSUBN", ""), r.get("TRTSUBC", ""),
+            r.get("FILTER", ""), r.get("FOOTNOTE", ""),
+        ])
     d = os.path.dirname(xlsx_path)
     if d:
         os.makedirs(d, exist_ok=True)
