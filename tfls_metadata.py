@@ -6,12 +6,35 @@ TFLs 页面 - Metadata Setup 弹窗逻辑（独立模块）
 第一步：受试者分布 T14_1-1_1.xlsx 初始化设置（按 Meta_Data表格制作流程：01/04/05/06 四部分）。
 第二步：分析集 XXXX 初始化（从 Word 文档「分析集」章节解析小标题与内容，写入 Excel）。
 """
+import logging
 import os
 import re
 import shutil
 from datetime import datetime
 import tkinter as tk
 from tkinter import messagebox, filedialog
+
+logger = logging.getLogger(__name__)
+
+
+def _setup_log_file():
+    """将本模块日志同时输出到本地文件（logs/tfls_metadata.log），仅添加一次。"""
+    if any(isinstance(h, logging.FileHandler) for h in logger.handlers):
+        return
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "tfls_metadata.log")
+        fh = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+        logger.addHandler(fh)
+        logger.setLevel(logging.DEBUG)
+    except Exception as e:
+        logger.debug("无法创建日志文件 %s: %s", log_dir, e)
+
+
+_setup_log_file()
 
 
 # ---------- 第一步：受试者分布 T14_1-1_1 数据解析与生成 ----------
@@ -197,12 +220,22 @@ def _get_followup_reasons(edc_data):
 
 def _get_screen_fail_reasons(edc_data):
     """从 EDCDEF 中提取筛选失败原因列表（CODE_NAME_CHN=筛选结束原因/筛选失败原因，按 CODE_ORDER 排序，TEXT 取 CODE_LABEL）。"""
+    if not edc_data:
+        logger.warning("[筛选失败原因] edc_data 为空，无法匹配 CODE_NAME_CHN，返回空列表。")
+        return []
+    edc_keys = list(edc_data.keys())
+    logger.info("[筛选失败原因] EDCDEF 中 CODE_NAME_CHN 候选键（共 %d 个）：%s", len(edc_keys), edc_keys)
+    logger.info("[筛选失败原因] 待匹配名称 _EDC_SCREEN_FAIL_NAMES：%s", _EDC_SCREEN_FAIL_NAMES)
     for k, items in edc_data.items():
         k_strip = (k or "").strip()
         for name in _EDC_SCREEN_FAIL_NAMES:
             # 精确匹配或数据键包含完整名称，避免短子串误匹配（如 k='因'）
             if k_strip == name or (name in k_strip and len(k_strip) >= len(name)):
-                return [lb for _, lb in items]
+                labels = [lb for _, lb in items]
+                logger.info("[筛选失败原因] 匹配到 key=%r，共 %d 条：%s", k_strip, len(labels), labels)
+                return labels
+        logger.debug("[筛选失败原因] key=%r 与任一 %s 未匹配。", k_strip, _EDC_SCREEN_FAIL_NAMES)
+    logger.warning("[筛选失败原因] 未找到匹配的 CODE_NAME_CHN（期望含：%s），返回空列表。", _EDC_SCREEN_FAIL_NAMES)
     return []
 
 
