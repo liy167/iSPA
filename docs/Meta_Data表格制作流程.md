@@ -23,17 +23,30 @@
 
 | 行号 | 内容 | 赋值方式 | 特殊说明 |
 |:---|:---|:---|:---|
-| 第1-2行 | 固定文本 | 直接硬写 | 无 |
+| 第1-2行 | 固定文本 | 直接硬写 | 见下表列结构及取值 |
 | 第3行 | 动态判断 | 条件赋值 | 根据ADSL数据集说明文件中，是否存在RANDFL变量决定 |
+
+#### 固定列结构（必含列名）
+
+**列名（从左到右）：** `TEXT` | `MASK` | `LINE_BREAK` | `INDENT` | `SEC` | `TRT_I` | `DSNIN` | `TRTSUBN` | `TRTSUBC` | `FILTER`
+
+#### 第1-2行各列取值
+
+| 行 | TEXT | MASK | LINE_BREAK | INDENT | SEC | TRT_I | DSNIN | TRTSUBN | TRTSUBC | FILTER |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| 第1行 | 筛选受试者 | | | | 01_scr | | adsl | trt01pn | trt01p | `prxmatch('/^(合计\|total)\s*$/i', trt01p)` |
+| 第2行 | 筛选失败受试者 | | | | 01_scr | | adsl | trt01pn | trt01p | `prxmatch('/^(合计\|total)\s*$/i', trt01p) and (scfailfl='Y')` |
+
+- **第1行**：筛选受试者（Screened Subjects），FILTER 为合计/Total 匹配。
+- **第2行**：筛选失败受试者（Screening Failed Subjects），FILTER 在上一行基础上增加 `scfailfl='Y'` 条件。
 
 #### 第3行判断逻辑
 **检查路径：** variables sheet → ADSL数据集 → 查找"RANDFL"变量且确认"Study Specific"列标记为"Y"
 
-IF 存在 "RANDFL" 变量:
-第3行 = "筛选成功为随机受试者"
-ELSE IF 存在入组变量ENRLFL:
-将"随机"改为"入组"
-第3行 = "筛选成功为入组受试者"
+- **若** 存在 `RANDFL` 变量：  
+  第3行 = 「筛选成功为随机受试者」
+- **否则若** 存在入组变量 `ENRLFL`：  
+  将「随机」改为「入组」，第3行 = 「筛选成功为入组受试者」
 
 
 ### 第二部分：04部分（随机信息）
