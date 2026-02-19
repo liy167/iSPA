@@ -63,17 +63,27 @@ _EDC_DCTREAS_NAMES = ("治疗结束主要原因", "治疗结束原因")
 # EDCDEF_code 中 随访结束原因 的 CODE_NAME_CHN 匹配
 _EDC_FOLLOWUP_NAMES = ("随访结束原因", "随访结束主要原因", "研究结束原因", "原因结束主要原因")
 # EDCDEF_code 中 筛选失败原因 的 CODE_NAME_CHN 匹配（TEXT=CODE_LABEL，顺序=CODE_ORDER）
-# 支持「筛选结束原因」「筛选失败原因」等常见命名
-_EDC_SCREEN_FAIL_NAMES = ("筛选结束原因", "筛选失败原因")
+# 支持「筛选结束原因」「筛选失败原因」「筛选原因」等常见命名（匹配时列名优先，其次为行值）
+_EDC_SCREEN_FAIL_NAMES = ("筛选结束原因", "筛选失败原因", "筛选原因")
+
+# 所有“原因”类名称，用于 read_edcdef_code 中按列名匹配（列名=表头，非行内 CODE_NAME_CHN 值）
+_EDC_ALL_REASON_NAMES = set(_EDC_DCTREAS_NAMES) | set(_EDC_FOLLOWUP_NAMES) | set(_EDC_SCREEN_FAIL_NAMES)
 
 
 def _find_excel_column(df, candidates):
-    """在 DataFrame 列名中查找匹配项（忽略大小写、首尾空格）。返回列名或 None。"""
+    """在 DataFrame 列名中查找匹配项（忽略大小写、首尾空格）。返回列名或 None。
+    优先精确匹配，避免短列名误匹配（如查找 CODE_NAME_CHN 时不能匹配成 CODE_NAME）。"""
     cols = {str(c).strip().lower(): c for c in df.columns}
     for cand in candidates:
         k = cand.strip().lower()
         for col_key, col_orig in cols.items():
-            if k in col_key or col_key in k:
+            if col_key == k:
+                return col_orig
+        for col_key, col_orig in cols.items():
+            # 子串匹配时要求列名不少于候选长度，避免 CODE_NAME 匹配到 CODE_NAME_CHN 的查找
+            if k in col_key and len(col_key) >= len(k):
+                return col_orig
+            if col_key in k and len(col_key) >= len(k):
                 return col_orig
     return None
 
@@ -172,8 +182,9 @@ def read_edcdef_code(edc_path):
     if df is None or df.empty:
         return {}
 
+    # 与 EDC 表结构一致：CODE_GRP, CODE_NAME_CHN, CODE_LABEL, CODE_ORDER 等；顺序列支持 CODE_ORDER 或 CODE_ORDER_R
     col_name = _find_excel_column(df, ("CODE_NAME_CHN", "Code_Name_Chn", "code_name_chn"))
-    col_order = _find_excel_column(df, ("CODE_ORDER", "Code_Order", "code_order"))
+    col_order = _find_excel_column(df, ("CODE_ORDER", "Code_Order", "code_order", "CODE_ORDER_R", "Code_Order_R"))
     col_label = _find_excel_column(df, ("CODE_LABEL", "Code_Label", "code_label"))
 
     if col_name is None or col_label is None:
@@ -197,6 +208,28 @@ def read_edcdef_code(edc_path):
     for k in result:
         result[k].sort(key=lambda x: x[0])
 
+    # 按列名（表头）再匹配一轮：EDCDEF 中可能用「筛选失败原因」等作为列名，而非 CODE_NAME_CHN 的行值
+    for col in df.columns:
+        col_strip = str(col).strip()
+        for name in _EDC_ALL_REASON_NAMES:
+            if col_strip != name and not (name in col_strip and len(col_strip) >= len(name)):
+                continue
+            # 用该列的值作为 CODE_LABEL，同一行的 CODE_ORDER 作为顺序
+            pairs = []
+            for idx, row in df.iterrows():
+                try:
+                    o = row.get(col_order) if col_order is not None else idx
+                    o = float(o) if o is not None and str(o).strip() else idx
+                except (ValueError, TypeError):
+                    o = idx
+                lb = str(row.get(col, "") or "").strip()
+                if lb:
+                    pairs.append((o, lb))
+            pairs.sort(key=lambda x: x[0])
+            if pairs:
+                result[col_strip] = pairs
+            break
+
     return result
 
 
@@ -219,12 +252,12 @@ def _get_followup_reasons(edc_data):
 
 
 def _get_screen_fail_reasons(edc_data):
-    """从 EDCDEF 中提取筛选失败原因列表（CODE_NAME_CHN=筛选结束原因/筛选失败原因，按 CODE_ORDER 排序，TEXT 取 CODE_LABEL）。"""
+    """从 EDCDEF 中提取筛选失败原因列表。优先按列名（表头）匹配「筛选结束原因/筛选失败原因」；否则按行内 CODE_NAME_CHN 值匹配；按 CODE_ORDER 排序，TEXT 取 CODE_LABEL。"""
     if not edc_data:
-        logger.warning("[筛选失败原因] edc_data 为空，无法匹配 CODE_NAME_CHN，返回空列表。")
+        logger.warning("[筛选失败原因] edc_data 为空，无法匹配列名或 CODE_NAME_CHN，返回空列表。")
         return []
     edc_keys = list(edc_data.keys())
-    logger.info("[筛选失败原因] EDCDEF 中 CODE_NAME_CHN 候选键（共 %d 个）：%s", len(edc_keys), edc_keys)
+    logger.info("[筛选失败原因] EDCDEF 候选键（列名或 CODE_NAME_CHN 行值，共 %d 个）：%s", len(edc_keys), edc_keys)
     logger.info("[筛选失败原因] 待匹配名称 _EDC_SCREEN_FAIL_NAMES：%s", _EDC_SCREEN_FAIL_NAMES)
     for k, items in edc_data.items():
         k_strip = (k or "").strip()
@@ -235,7 +268,7 @@ def _get_screen_fail_reasons(edc_data):
                 logger.info("[筛选失败原因] 匹配到 key=%r，共 %d 条：%s", k_strip, len(labels), labels)
                 return labels
         logger.debug("[筛选失败原因] key=%r 与任一 %s 未匹配。", k_strip, _EDC_SCREEN_FAIL_NAMES)
-    logger.warning("[筛选失败原因] 未找到匹配的 CODE_NAME_CHN（期望含：%s），返回空列表。", _EDC_SCREEN_FAIL_NAMES)
+    logger.warning("[筛选失败原因] 未找到匹配的列名或 CODE_NAME_CHN（期望含：%s），返回空列表。", _EDC_SCREEN_FAIL_NAMES)
     return []
 
 
