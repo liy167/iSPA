@@ -48,8 +48,17 @@ _T14_01_TRTSUBN = "trt01pn"
 _T14_01_TRTSUBC = "trt01p"
 _T14_01_FILTER_ROW1 = "prxmatch('/^(合计|total)\\s*$/i', trt01p)"
 _T14_01_FILTER_ROW2 = "prxmatch('/^(合计|total)\\s*$/i', trt01p) and (scfailfl='Y')"
-# 04部分固定三行（仅当存在 RANDFL 时）
-_T14_04_ROWS = ("随机化", "随机接受研究治疗", "随机未接受研究治疗")
+# 第3行之前一行（第10行）：根据 RANDFL/ENRLFL 二选一
+_T14_01_ROW_BEFORE_ROW3_RANDFL = "筛选成功未随机受试者"
+_T14_01_FILTER_ROW_BEFORE_ROW3_RANDFL = "prxmatch('/^(合计|total)\\s*$/i', trt01p) and (scfailfl='N') and randfl='N'"
+_T14_01_ROW_BEFORE_ROW3_ENRLFL = "筛选成功未入组受试者"
+_T14_01_FILTER_ROW_BEFORE_ROW3_ENRLFL = "prxmatch('/^(合计|total)\\s*$/i', trt01p) and (scfailfl='N') and enrlfl='N'"
+# 04部分：第10行后/第14行后各 3 行（RANDFL 与 ENRLFL 可同时存在）
+_T14_04_SEC = "04_rnd"
+_T14_04_ROWS_RANDFL = ("随机受试者", "随机未接受研究治疗", "随机且接受研究治疗")
+_T14_04_FILTERS_RANDFL = ("randfl='Y' and scfailfl='N'", "randfl='Y' and scfailfl='N' and saffl='N'", "randfl='Y' and scfailfl='N' and saffl='Y'")
+_T14_04_ROWS_ENRLFL = ("入组受试者", "入组未接受研究治疗", "入组且接受研究治疗")
+_T14_04_FILTERS_ENRLFL = ("enrlfl='Y' and scfailfl='N'", "enrlfl='Y' and scfailfl='N' and saffl='N'", "enrlfl='Y' and scfailfl='N' and saffl='Y'")
 # 05部分
 _T14_05_HEADER = "完成研究治疗汇总"
 _T14_05_TITLE = "终止研究治疗"
@@ -92,8 +101,12 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
     """
     从 ADaM 数据集说明 Excel 的 variables sheet 中判断 ADSL 是否存在 RANDFL/ENRLFL。
     检查路径：variables sheet → ADSL 数据集 → RANDFL 且 Study Specific = Y，或 ENRLFL。
-    返回: "randfl" | "enrlfl" | None
+    若既有 RANDFL 也有 ENRLFL 则都返回，顺序为 RANDFL 先、ENRLFL 后。
+    返回: tuple of "randfl" 和/或 "enrlfl"，如 ("randfl",)、("enrlfl",)、("randfl", "enrlfl")；均不存在时返回 ("randfl",) 作为默认。
+    详细日志写入 logs/tfls_metadata.log，便于排查为何出现 ENRLFL 块。
     """
+    _setup_log_file()
+    logger.info("[RANDFL/ENRLFL] 开始解析 ADaM 说明文件：%s", adam_excel_path)
     try:
         import pandas as pd
     except ImportError:
@@ -103,15 +116,16 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
         )
 
     xl = pd.ExcelFile(adam_excel_path)
-    # 查找 variables 或 Variables 等 sheet
     sheet_name = None
     for s in xl.sheet_names:
         if "variable" in s.lower():
             sheet_name = s
             break
     if sheet_name is None:
+        logger.warning("[RANDFL/ENRLFL] 未找到 variables 相关 sheet，sheet 列表：%s", xl.sheet_names)
         raise ValueError("ADaM 说明文件中未找到 variables 相关 sheet。")
 
+    logger.info("[RANDFL/ENRLFL] 使用 sheet：%s", sheet_name)
     df = pd.read_excel(adam_excel_path, sheet_name=sheet_name, header=0)
     if df.empty:
         raise ValueError("variables sheet 为空。")
@@ -119,36 +133,73 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
     col_dataset = _find_excel_column(df, ("Dataset", "Data Set", "数据集", "Dataset Name"))
     col_var = _find_excel_column(df, ("Variable", "变量", "Variable Name"))
     col_study_spec = _find_excel_column(df, ("Study Specific", "StudySpecific", "Study Specific Flag"))
+    logger.info("[RANDFL/ENRLFL] 列名映射：Dataset=%s, Variable=%s, Study Specific=%s",
+                col_dataset, col_var, col_study_spec)
 
     if col_dataset is None or col_var is None:
         raise ValueError("variables sheet 中未找到 Dataset 或 Variable 列。")
 
-    # 筛选 ADSL
     ds_col = df[col_dataset].astype(str).str.strip()
-    adsl_mask = ds_col.str.upper().str.contains("ADSL", na=False)
+    # 仅匹配 Dataset 列等于 "ADSL" 的行，避免含 "ADSL" 子串的其它数据集（如 ADSL_SUPP）导致误判 ENRLFL
+    adsl_mask = ds_col.str.upper() == "ADSL"
     adsl_df = df.loc[adsl_mask]
 
+    adsl_dataset_values = ds_col.loc[adsl_mask].unique().tolist()
+    logger.info("[RANDFL/ENRLFL] 筛选条件：Dataset 列等于 'ADSL'（精确）；匹配到的行数=%d，Dataset 取值：%s",
+                len(adsl_df), adsl_dataset_values)
+
     if adsl_df.empty:
-        return None
+        logger.warning("[RANDFL/ENRLFL] 无 ADSL 行，返回默认 ('randfl',)")
+        return ("randfl",)  # 默认
 
     var_col = adsl_df[col_var].astype(str).str.strip()
+    # 记录 ADSL 下 Variable 列的全部取值（用于核对是否含 RANDFL/ENRLFL）
+    unique_vars = sorted(var_col.unique().tolist())
+    logger.info("[RANDFL/ENRLFL] ADSL 行数=%d，Variable 列唯一值（共 %d 个）：%s",
+                len(adsl_df), len(unique_vars), unique_vars)
 
-    # 优先检查 RANDFL 且 Study Specific = Y
+    out = []
+
+    # 检查 RANDFL 且 Study Specific = Y
     randfl_mask = var_col.str.upper() == "RANDFL"
-    if randfl_mask.any():
+    randfl_found = randfl_mask.any()
+    if randfl_found:
         if col_study_spec is not None:
             ss = adsl_df.loc[randfl_mask, col_study_spec].astype(str).str.strip().str.upper()
-            if (ss == "Y").any():
-                return "randfl"
+            study_spec_y = (ss == "Y").any()
+            logger.info("[RANDFL/ENRLFL] 检测到 RANDFL 行，Study Specific 列含 Y：%s", study_spec_y)
+            if study_spec_y:
+                out.append("randfl")
         else:
-            return "randfl"
+            logger.info("[RANDFL/ENRLFL] 检测到 RANDFL 行，无 Study Specific 列，按存在即采纳")
+            out.append("randfl")
+    else:
+        logger.info("[RANDFL/ENRLFL] 未在 ADSL 的 Variable 列中找到 RANDFL")
 
-    # 否则检查 ENRLFL
+    # 检查 ENRLFL 且 Study Specific = Y（与 RANDFL 一致，均需 Study Specific 列=Y）
     enrlfl_mask = var_col.str.upper() == "ENRLFL"
-    if enrlfl_mask.any():
-        return "enrlfl"
+    enrlfl_found = enrlfl_mask.any()
+    if enrlfl_found:
+        if col_study_spec is not None:
+            ss_enrl = adsl_df.loc[enrlfl_mask, col_study_spec].astype(str).str.strip().str.upper()
+            enrlfl_study_spec_y = (ss_enrl == "Y").any()
+            logger.info("[RANDFL/ENRLFL] 检测到 ENRLFL 行，Study Specific 列含 Y：%s（若为 True 则会输出第14-17行）", enrlfl_study_spec_y)
+            if enrlfl_study_spec_y:
+                out.append("enrlfl")
+        else:
+            logger.info("[RANDFL/ENRLFL] 检测到 ENRLFL 行，无 Study Specific 列，按存在即采纳")
+            out.append("enrlfl")
+    else:
+        logger.info("[RANDFL/ENRLFL] 未在 ADSL 的 Variable 列中找到 ENRLFL，将不输出入组块（第14-17行）")
 
-    return None
+    result = tuple(out) if out else ("randfl",)
+    blocks = []
+    if "randfl" in result:
+        blocks.append("第10-13行(RANDFL)")
+    if "enrlfl" in result:
+        blocks.append("第14-17行(ENRLFL)")
+    logger.info("[RANDFL/ENRLFL] 解析结果：%s → 将输出块：%s", result, "；".join(blocks))
+    return result
 
 
 def read_edcdef_code(edc_path):
@@ -272,10 +323,10 @@ def _get_screen_fail_reasons(edc_data):
     return []
 
 
-def build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons, screen_fail_reasons=None):
+def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, screen_fail_reasons=None):
     """
     按 Meta_Data 流程构建 T14_1-1_1 受试者分布的所有行。
-    randfl_or_enrlfl: "randfl" | "enrlfl" | None
+    randfl_enrlfl_flags: tuple of "randfl" 和/或 "enrlfl"，如 ("randfl",)、("enrlfl",)、("randfl", "enrlfl")。每个 flag 输出「第10行+3行」块：筛选成功未随机/未入组 + 对应 04 三行。
     dct_reasons: 治疗结束原因列表
     followup_reasons: 随访结束原因列表
     screen_fail_reasons: 筛选失败原因列表（来自 EDCDEF CODE_NAME_CHN=筛选结束原因，按 CODE_ORDER）
@@ -321,22 +372,35 @@ def build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons, screen
             "FILTER": filter_val, "FOOTNOTE": "",
         })
 
-    if randfl_or_enrlfl == "randfl":
-        text_3 = "筛选成功为随机受试者"
-    elif randfl_or_enrlfl == "enrlfl":
-        text_3 = "筛选成功为入组受试者"
-    else:
-        text_3 = "筛选成功为随机受试者"  # 默认
-    row_num += 1
-    em = _empty_meta()
-    rows.append({"TEXT": text_3, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **em, "FILTER": "", "FOOTNOTE": ""})
-
-    # 04部分（仅当存在 RANDFL 时）
-    if randfl_or_enrlfl == "randfl":
-        for t in _T14_04_ROWS:
+    # 第10行+3行 / 第14行+3行：若既有 RANDFL 也有 ENRLFL 则都处理。每个 flag 一块：1 行「筛选成功未随机/未入组」+ 3 行 04（随机受试者/入组受试者等）
+    flags = tuple(randfl_enrlfl_flags) if randfl_enrlfl_flags else ("randfl",)
+    for flag in flags:
+        if flag == "enrlfl":
+            text_before = _T14_01_ROW_BEFORE_ROW3_ENRLFL
+            filter_before = _T14_01_FILTER_ROW_BEFORE_ROW3_ENRLFL
+            four_rows_text = _T14_04_ROWS_ENRLFL
+            four_filters = _T14_04_FILTERS_ENRLFL
+        else:
+            text_before = _T14_01_ROW_BEFORE_ROW3_RANDFL
+            filter_before = _T14_01_FILTER_ROW_BEFORE_ROW3_RANDFL
+            four_rows_text = _T14_04_ROWS_RANDFL
+            four_filters = _T14_04_FILTERS_RANDFL
+        row_num += 1
+        rows.append({
+            "TEXT": text_before, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+            "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
+            "FILTER": filter_before, "FOOTNOTE": "",
+        })
+        for i, (t, f) in enumerate(zip(four_rows_text, four_filters)):
             row_num += 1
-            em = _empty_meta()
-            rows.append({"TEXT": t, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **em, "FILTER": "", "FOOTNOTE": ""})
+            # 04 块第一行：LINE_BREAK="1"、INDENT 为空；第2、3行：LINE_BREAK 为空、INDENT="1"
+            line_break = "1" if i == 0 else ""
+            indent = "" if i == 0 else "1"
+            rows.append({
+                "TEXT": t, "ROW": row_num, "MASK": "", "LINE_BREAK": line_break, "INDENT": indent,
+                "SEC": _T14_04_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
+                "FILTER": f, "FOOTNOTE": "",
+            })
 
     # 05部分
     row_num += 1
@@ -655,16 +719,16 @@ def show_metadata_setup_dialog(gui):
         adam_path = adam_entry.get().strip()
         edc_path = edc_entry.get().strip()
 
-        randfl_or_enrlfl = None
+        randfl_enrlfl_flags = ("randfl",)
         if adam_path and os.path.isfile(adam_path):
             try:
-                randfl_or_enrlfl = parse_adam_spec_for_randfl_enrlfl(adam_path)
-                gui.update_status("ADaM 解析：%s" % (randfl_or_enrlfl or "未检测到 RANDFL/ENRLFL"))
+                randfl_enrlfl_flags = parse_adam_spec_for_randfl_enrlfl(adam_path)
+                gui.update_status("ADaM 解析：%s" % (", ".join(randfl_enrlfl_flags) if randfl_enrlfl_flags else "未检测到 RANDFL/ENRLFL"))
             except Exception as e:
                 messagebox.showwarning("ADaM 解析", "无法解析 ADaM 说明文件，将使用默认（随机受试者）：%s" % e)
-                randfl_or_enrlfl = "randfl"
+                randfl_enrlfl_flags = ("randfl",)
         else:
-            randfl_or_enrlfl = "randfl"
+            randfl_enrlfl_flags = ("randfl",)
 
         edc_data = {}
         if edc_path and os.path.isfile(edc_path):
@@ -686,7 +750,7 @@ def show_metadata_setup_dialog(gui):
             d = os.path.dirname(path)
             if d:
                 os.makedirs(d, exist_ok=True)
-            rows = build_t14_1_1_1_rows(randfl_or_enrlfl, dct_reasons, followup_reasons, screen_fail_reasons)
+            rows = build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, screen_fail_reasons)
             write_t14_1_1_1_xlsx(path, rows)
             gui.update_status("已初始化 T14_1-1_1.xlsx（共 %d 行）：%s" % (len(rows), path))
             if messagebox.askyesno("成功", "已生成初版 T14_1-1_1.xlsx（01/04/05/06 四部分，共 %d 行）。\n\n是否审阅并打开生成文件？" % len(rows)):

@@ -71,22 +71,33 @@
 - 标题行 FILTER 为 `0`，表示仅作分组标题。
 - 各原因行 FILTER 在「筛选失败受试者」条件基础上增加 `SCFAILRE='[该行 TEXT]'`，与 ADSL 中筛选失败原因变量一致。
 
-#### 第3行判断逻辑
-**检查路径：** variables sheet → ADSL数据集 → 查找"RANDFL"变量且确认"Study Specific"列标记为"Y"
+#### 第10行+3行 / 第14行+3行（按 RANDFL/ENRLFL）
 
-- **若** 存在 `RANDFL` 变量：  
-  第3行 = 「筛选成功为随机受试者」
-- **否则若** 存在入组变量 `ENRLFL`：  
-  将「随机」改为「入组」，第3行 = 「筛选成功为入组受试者」
+**检查路径：** variables sheet → ADSL 数据集（Dataset 列等于 "ADSL"）→ 查找 **Variable 列 = "RANDFL" 且 Study Specific 列 = "Y"**，以及 **Variable 列 = "ENRLFL" 且 Study Specific 列 = "Y"**。**RANDFL 与 ENRLFL 均需满足 Study Specific = Y 才输出对应块**。若两者都满足，则先输出 RANDFL 块（第10行+3行），再输出 ENRLFL 块（第14行+3行）。
 
+**RANDFL 块（第10行+3行，仅当 Variable=RANDFL 且 Study Specific=Y 时）：**
 
-### 第二部分：04部分（随机信息）
+| 行 | TEXT | INDENT | SEC | FILTER |
+|:---|:---|:---|:---|:---|
+| 第10行 | 筛选成功未随机受试者 | 空 | 01_scr | `prxmatch('/^(合计\|total)\s*$/i', trt01p) and (scfailfl='N') and randfl='N'` |
+| 第11行 | 随机受试者 | 1 | 04_rnd | `randfl='Y' and scfailfl='N'` |
+| 第12行 | 随机未接受研究治疗 | 1 | 04_rnd | `randfl='Y' and scfailfl='N' and saffl='N'` |
+| 第13行 | 随机且接受研究治疗 | 1 | 04_rnd | `randfl='Y' and scfailfl='N' and saffl='Y'` |
 
-| 内容 | 赋值方式 | 说明 |
-|:---|:---|:---|
-| 随机部分的三行 | 直接硬写 | 固定文本，直接复制即可 |
+**ENRLFL 块（第14行+3行，仅当 Variable=ENRLFL 且 Study Specific=Y 时）：**
 
-**前提条件：** 仅在01部分判断存在随机变量RANDFL时，才需要制作此部分
+| 行 | TEXT | INDENT | SEC | FILTER |
+|:---|:---|:---|:---|:---|
+| 第14行 | 筛选成功未入组受试者 | 空 | 01_scr | `prxmatch('/^(合计\|total)\s*$/i', trt01p) and (scfailfl='N') and enrlfl='N'` |
+| 第15行 | 入组受试者 | 1 | 04_rnd | `enrlfl='Y' and scfailfl='N'` |
+| 第16行 | 入组未接受研究治疗 | 1 | 04_rnd | `enrlfl='Y' and scfailfl='N' and saffl='N'` |
+| 第17行 | 入组且接受研究治疗 | 1 | 04_rnd | `enrlfl='Y' and scfailfl='N' and saffl='Y'` |
+
+以上 DSNIN/TRTSUBN/TRTSUBC 同 01 部分（adsl, trt01pn, trt01p）。
+
+### 第二部分：04部分（随机/入组信息）
+
+每个 RANDFL 或 ENRLFL 块包含 3 行（随机受试者/入组受试者、未接受研究治疗、且接受研究治疗），SEC=04_rnd，FILTER 见上表。仅当 Variables sheet 中 ADSL 下对应变量存在且 **Study Specific 列 = Y** 时才输出该块；若 RANDFL 与 ENRLFL 均满足，则先输出 RANDFL 的 3 行，再输出 ENRLFL 的 3 行。
 
 ### 第三部分：05部分（完成/终止研究治疗）
 
