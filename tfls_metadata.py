@@ -55,7 +55,10 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
     try:
         import pandas as pd
     except ImportError:
-        raise RuntimeError("请先安装 pandas：pip install pandas")
+        raise RuntimeError(
+            "请先安装 pandas：pip install pandas\n"
+            "若提示权限错误，请以管理员身份打开命令行再执行，或在项目目录使用：python -m venv venv 后激活 venv 再 pip install pandas"
+        )
 
     xl = pd.ExcelFile(adam_excel_path)
     # 查找 variables 或 Variables 等 sheet
@@ -114,7 +117,10 @@ def read_edcdef_code(edc_path):
     try:
         import pandas as pd
     except ImportError:
-        raise RuntimeError("请先安装 pandas：pip install pandas")
+        raise RuntimeError(
+            "请先安装 pandas：pip install pandas\n"
+            "若提示权限错误，请以管理员身份打开命令行再执行，或在项目目录使用：python -m venv venv 后激活 venv 再 pip install pandas"
+        )
 
     if not edc_path or not os.path.isfile(edc_path):
         return {}
