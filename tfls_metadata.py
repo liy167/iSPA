@@ -40,7 +40,8 @@ _EDC_DCTREAS_NAMES = ("治疗结束主要原因", "治疗结束原因")
 # EDCDEF_code 中 随访结束原因 的 CODE_NAME_CHN 匹配
 _EDC_FOLLOWUP_NAMES = ("随访结束原因", "随访结束主要原因", "研究结束原因", "原因结束主要原因")
 # EDCDEF_code 中 筛选失败原因 的 CODE_NAME_CHN 匹配（TEXT=CODE_LABEL，顺序=CODE_ORDER）
-_EDC_SCREEN_FAIL_NAMES = ("筛选结束原因",)
+# 支持「筛选结束原因」「筛选失败原因」等常见命名
+_EDC_SCREEN_FAIL_NAMES = ("筛选结束原因", "筛选失败原因")
 
 
 def _find_excel_column(df, candidates):
@@ -195,10 +196,12 @@ def _get_followup_reasons(edc_data):
 
 
 def _get_screen_fail_reasons(edc_data):
-    """从 EDCDEF 中提取筛选失败原因列表（CODE_NAME_CHN=筛选结束原因，按 CODE_ORDER 排序，TEXT 取 CODE_LABEL）。"""
+    """从 EDCDEF 中提取筛选失败原因列表（CODE_NAME_CHN=筛选结束原因/筛选失败原因，按 CODE_ORDER 排序，TEXT 取 CODE_LABEL）。"""
     for k, items in edc_data.items():
+        k_strip = (k or "").strip()
         for name in _EDC_SCREEN_FAIL_NAMES:
-            if name in k or k in name:
+            # 精确匹配或数据键包含完整名称，避免短子串误匹配（如 k='因'）
+            if k_strip == name or (name in k_strip and len(k_strip) >= len(name)):
                 return [lb for _, lb in items]
     return []
 
