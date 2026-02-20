@@ -422,7 +422,7 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
     screen_fail_reasons: 筛选失败原因列表
     treatment_end_label: 「治疗结束状态」类变量标签，用于动态生成 05 部分前 3 行 TEXT；None 时用默认。
     treatment_end_var_name: 实际变量名（如 EOTSTT、EOTSTT1），用于 05 部分 FILTER；None 时用 _T14_05_VAR_EOTSTT。
-    返回: list of dict with keys: TEXT, ROW, MASK, LINE_BREAK, INDENT, SEC, TRT_I, DSNIN, TRTSUBN, TRTSUBC, FILTER, FOOTNOTE
+    返回: list of dict with keys: TEXT, MASK, LINE_BREAK, INDENT, SEC, TRT_I, DSNIN, TRTSUBN, TRTSUBC, FILTER（第一步不含 ROW、FOOTNOTE）
     """
     def _empty_meta():
         return {"SEC": "", "TRT_I": "", "DSNIN": "", "TRTSUBN": "", "TRTSUBC": ""}
@@ -433,15 +433,15 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
     # 01部分（第1-2行按 Meta_Data 流程：SEC/DSNIN/TRTSUBN/TRTSUBC/FILTER）
     row_num += 1
     rows.append({
-        "TEXT": _T14_01_ROW1, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        "TEXT": _T14_01_ROW1, "MASK": "", "LINE_BREAK": "", "INDENT": "",
         "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
-        "FILTER": _T14_01_FILTER_ROW1, "FOOTNOTE": "",
+        "FILTER": _T14_01_FILTER_ROW1,
     })
     row_num += 1
     rows.append({
-        "TEXT": _T14_01_ROW2, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        "TEXT": _T14_01_ROW2, "MASK": "", "LINE_BREAK": "", "INDENT": "",
         "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
-        "FILTER": _T14_01_FILTER_ROW2, "FOOTNOTE": "",
+        "FILTER": _T14_01_FILTER_ROW2,
     })
 
     # 筛选失败原因（第2行之后、第3行之前）：标题行 + 各原因子行，数据来源 EDCDEF CODE_NAME_CHN=筛选结束原因
@@ -449,9 +449,9 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
         screen_fail_reasons = []
     row_num += 1
     rows.append({
-        "TEXT": "筛选失败原因", "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        "TEXT": "筛选失败原因", "MASK": "", "LINE_BREAK": "", "INDENT": "",
         "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
-        "FILTER": "0", "FOOTNOTE": "",
+        "FILTER": "0",
     })
     for reason in screen_fail_reasons:
         row_num += 1
@@ -459,9 +459,9 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
         reason_esc = (reason or "").replace("'", "''")
         filter_val = "%s and SCFAILRE='%s'" % (_T14_01_FILTER_ROW2, reason_esc)
         rows.append({
-            "TEXT": reason or "", "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "1",
+            "TEXT": reason or "", "MASK": "", "LINE_BREAK": "", "INDENT": "1",
             "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
-            "FILTER": filter_val, "FOOTNOTE": "",
+            "FILTER": filter_val,
         })
 
     # 第10行+3行 / 第14行+3行：若既有 RANDFL 也有 ENRLFL 则都处理。每个 flag 一块：1 行「筛选成功未随机/未入组」+ 3 行 04（随机受试者/入组受试者等）
@@ -479,9 +479,9 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
             four_filters = _T14_04_FILTERS_RANDFL
         row_num += 1
         rows.append({
-            "TEXT": text_before, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+            "TEXT": text_before, "MASK": "", "LINE_BREAK": "", "INDENT": "",
             "SEC": _T14_01_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
-            "FILTER": filter_before, "FOOTNOTE": "",
+            "FILTER": filter_before,
         })
         for i, (t, f) in enumerate(zip(four_rows_text, four_filters)):
             row_num += 1
@@ -489,9 +489,9 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
             line_break = "1" if i == 0 else ""
             indent = "" if i == 0 else "1"
             rows.append({
-                "TEXT": t, "ROW": row_num, "MASK": "", "LINE_BREAK": line_break, "INDENT": indent,
+                "TEXT": t, "MASK": "", "LINE_BREAK": line_break, "INDENT": indent,
                 "SEC": _T14_04_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC,
-                "FILTER": f, "FOOTNOTE": "",
+                "FILTER": f,
             })
 
     # 05部分：前 3 行 TEXT 由 treatment_end_label 动态生成（去掉「结束状态」得 base，再拼「完成研究」/「终止研究」）
@@ -504,18 +504,18 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
     em_05 = {"SEC": _T14_05_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC}
     row_num += 1
     rows.append({
-        "TEXT": row1_text, "ROW": row_num, "MASK": "", "LINE_BREAK": "1", "INDENT": "",
-        **em_05, "FILTER": filter_row1, "FOOTNOTE": "",
+        "TEXT": row1_text, "MASK": "", "LINE_BREAK": "1", "INDENT": "",
+        **em_05, "FILTER": filter_row1,
     })
     row_num += 1
     rows.append({
-        "TEXT": row2_text, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
-        **em_05, "FILTER": filter_row2, "FOOTNOTE": "",
+        "TEXT": row2_text, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        **em_05, "FILTER": filter_row2,
     })
     row_num += 1
     rows.append({
-        "TEXT": row3_text, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
-        **em_05, "FILTER": "0", "FOOTNOTE": "",
+        "TEXT": row3_text, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        **em_05, "FILTER": "0",
     })
     for reason in dct_reasons:
         if (reason or "").strip() in _T14_05_EXCLUDE_REASONS:
@@ -524,26 +524,26 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
         reason_esc = (reason or "").replace("'", "''")
         filter_dct = "%s and dctreas='%s'" % (filter_row2, reason_esc)
         rows.append({
-            "TEXT": reason or "", "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "1",
-            **em_05, "FILTER": filter_dct, "FOOTNOTE": "",
+            "TEXT": reason or "", "MASK": "", "LINE_BREAK": "", "INDENT": "1",
+            **em_05, "FILTER": filter_dct,
         })
 
     # 06部分：前3行强制赋值（完成研究、退出研究、退出研究原因），后面类似05后半部分且隔行增加「随机未接受研究治疗」
     em_06 = {"SEC": _T14_06_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC}
     row_num += 1
     rows.append({
-        "TEXT": _T14_06_ROW1, "ROW": row_num, "MASK": "", "LINE_BREAK": "1", "INDENT": "",
-        **em_06, "FILTER": _T14_06_FILTER_ROW1, "FOOTNOTE": "",
+        "TEXT": _T14_06_ROW1, "MASK": "", "LINE_BREAK": "1", "INDENT": "",
+        **em_06, "FILTER": _T14_06_FILTER_ROW1,
     })
     row_num += 1
     rows.append({
-        "TEXT": _T14_06_ROW2, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
-        **em_06, "FILTER": _T14_06_FILTER_ROW2, "FOOTNOTE": "",
+        "TEXT": _T14_06_ROW2, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        **em_06, "FILTER": _T14_06_FILTER_ROW2,
     })
     row_num += 1
     rows.append({
-        "TEXT": _T14_06_ROW3, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
-        **em_06, "FILTER": "0", "FOOTNOTE": "",
+        "TEXT": _T14_06_ROW3, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        **em_06, "FILTER": "0",
     })
     for reason in followup_reasons:
         if (reason or "").strip() in _T14_06_EXCLUDE_REASONS:
@@ -552,14 +552,14 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
         reason_esc = (reason or "").replace("'", "''")
         reason_filter = "%s and dcsreas='%s'" % (_T14_06_FILTER_ROW2, reason_esc)
         rows.append({
-            "TEXT": reason or "", "ROW": row_num, "MASK": "", "LINE_BREAK": "1", "INDENT": "1",
-            **em_06, "FILTER": reason_filter, "FOOTNOTE": "",
+            "TEXT": reason or "", "MASK": "", "LINE_BREAK": "1", "INDENT": "1",
+            **em_06, "FILTER": reason_filter,
         })
         row_num += 1
         extra_filter = reason_filter + _T14_06_EXTRA_SUFFIX
         rows.append({
-            "TEXT": _T14_06_EXTRA, "ROW": row_num, "MASK": "", "LINE_BREAK": "2", "INDENT": "",
-            **em_06, "FILTER": extra_filter, "FOOTNOTE": "",
+            "TEXT": _T14_06_EXTRA, "MASK": "", "LINE_BREAK": "2", "INDENT": "",
+            **em_06, "FILTER": extra_filter,
         })
 
     return rows
