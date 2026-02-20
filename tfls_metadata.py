@@ -68,10 +68,17 @@ _T14_05_BASE_KEEP = "治疗"        # 从变量标签中保留此二字作为 ba
 _T14_05_PREFIX_COMPLETE = "完成研究"
 _T14_05_PREFIX_TERMINATE = "终止研究"
 _T14_05_DEFAULT_LABEL = "治疗结束状态"  # 未从 ADaM 解析到时的默认标签
-# 06部分
-_T14_06_COMPLETE = "完成随访"
-_T14_06_WITHDRAW = "退出随访"
+_T14_05_EXCLUDE_REASONS = ("已完成",)    # 05 部分原因行中排除这些（不输出对应行），可配置
+_T14_06_EXCLUDE_REASONS = ("已完成",)    # 06 部分随访原因中排除这些（不输出对应行），可配置
+# 06部分（前3行强制赋值，后面每个随访原因一行+隔行增加「随机未接受研究治疗」）
+_T14_06_SEC = "06_fup"
+_T14_06_ROW1 = "完成研究"
+_T14_06_FILTER_ROW1 = "saffl='Y' and EOSSTT='完成研究'"
+_T14_06_ROW2 = "退出研究"
+_T14_06_FILTER_ROW2 = "saffl='Y' and EOSSTT='退出研究'"
+_T14_06_ROW3 = "退出研究原因"
 _T14_06_EXTRA = "随机未接受研究治疗"
+_T14_06_EXTRA_SUFFIX = " and randfl='Y' and saffl='N'"  # 隔行「随机未接受研究治疗」在原因 FILTER 基础上追加
 
 # EDCDEF_code 中 治疗结束原因 的 CODE_NAME_CHN 匹配
 _EDC_DCTREAS_NAMES = ("治疗结束主要原因", "治疗结束原因")
@@ -511,6 +518,8 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
         **em_05, "FILTER": "0", "FOOTNOTE": "",
     })
     for reason in dct_reasons:
+        if (reason or "").strip() in _T14_05_EXCLUDE_REASONS:
+            continue
         row_num += 1
         reason_esc = (reason or "").replace("'", "''")
         filter_dct = "%s and dctreas='%s'" % (filter_row2, reason_esc)
@@ -519,18 +528,39 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
             **em_05, "FILTER": filter_dct, "FOOTNOTE": "",
         })
 
-    # 06部分
+    # 06部分：前3行强制赋值（完成研究、退出研究、退出研究原因），后面类似05后半部分且隔行增加「随机未接受研究治疗」
+    em_06 = {"SEC": _T14_06_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC}
     row_num += 1
-    rows.append({"TEXT": _T14_06_COMPLETE, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": "", "FOOTNOTE": ""})
+    rows.append({
+        "TEXT": _T14_06_ROW1, "ROW": row_num, "MASK": "", "LINE_BREAK": "1", "INDENT": "",
+        **em_06, "FILTER": _T14_06_FILTER_ROW1, "FOOTNOTE": "",
+    })
     row_num += 1
-    rows.append({"TEXT": _T14_06_WITHDRAW, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": "", "FOOTNOTE": ""})
-    for idx, reason in enumerate(followup_reasons):
+    rows.append({
+        "TEXT": _T14_06_ROW2, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        **em_06, "FILTER": _T14_06_FILTER_ROW2, "FOOTNOTE": "",
+    })
+    row_num += 1
+    rows.append({
+        "TEXT": _T14_06_ROW3, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        **em_06, "FILTER": "0", "FOOTNOTE": "",
+    })
+    for reason in followup_reasons:
+        if (reason or "").strip() in _T14_06_EXCLUDE_REASONS:
+            continue
         row_num += 1
-        reason_filter = "退出原因=%d" % idx
-        rows.append({"TEXT": reason, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": reason_filter, "FOOTNOTE": ""})
+        reason_esc = (reason or "").replace("'", "''")
+        reason_filter = "%s and dcsreas='%s'" % (_T14_06_FILTER_ROW2, reason_esc)
+        rows.append({
+            "TEXT": reason or "", "ROW": row_num, "MASK": "", "LINE_BREAK": "1", "INDENT": "1",
+            **em_06, "FILTER": reason_filter, "FOOTNOTE": "",
+        })
         row_num += 1
-        extra_filter = (reason_filter + " and " if reason_filter else "") + "RANDFL='Y' and TRTSDT NE ."
-        rows.append({"TEXT": _T14_06_EXTRA, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": extra_filter, "FOOTNOTE": ""})
+        extra_filter = reason_filter + _T14_06_EXTRA_SUFFIX
+        rows.append({
+            "TEXT": _T14_06_EXTRA, "ROW": row_num, "MASK": "", "LINE_BREAK": "2", "INDENT": "",
+            **em_06, "FILTER": extra_filter, "FOOTNOTE": "",
+        })
 
     return rows
 
@@ -779,6 +809,10 @@ def show_metadata_setup_dialog(gui):
     tk.Label(row_adam, text="ADaM 数据集说明（Excel）：", font=("Microsoft YaHei UI", 9), width=22, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
     adam_entry = tk.Entry(row_adam, width=72, font=("Microsoft YaHei UI", 9))
     adam_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+    default_adam = os.path.join(default_edc_dir, "ADaM_spec.xlsx")
+    if not os.path.isfile(default_adam):
+        default_adam = os.path.join(default_adam_dir, "ADaM_spec.xlsx")
+    adam_entry.insert(0, default_adam if os.path.isfile(default_adam) else os.path.join(default_edc_dir, "ADaM_spec.xlsx"))
 
     def browse_adam():
         path = filedialog.askopenfilename(
@@ -902,12 +936,18 @@ def show_metadata_setup_dialog(gui):
     default_sap_dir = os.path.join(base_path, "utility", "documentation", "03_statistics")
     default_metadata_dir = os.path.join(base_path, "utility", "metadata")
     default_xlsx_step2 = os.path.join(default_metadata_dir, "T14_1-1_2.xlsx")
+    default_sap = os.path.join(default_sap_dir, "SAP.docx")
+    if not os.path.isfile(default_sap):
+        default_sap = os.path.join(base_path, "utility", "documentation", "SAP.docx")
+    if not os.path.isfile(default_sap):
+        default_sap = os.path.join(default_sap_dir, "SAP.docx")  # 无文件时仍显示默认路径供浏览
 
     row_sap = tk.Frame(main, bg="#f0f0f0")
     row_sap.pack(anchor="w", fill=tk.X, pady=(0, 6))
     tk.Label(row_sap, text="SAP 文件（.docx）：", font=("Microsoft YaHei UI", 9), width=22, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
     sap_entry = tk.Entry(row_sap, width=72, font=("Microsoft YaHei UI", 9))
     sap_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+    sap_entry.insert(0, default_sap)
 
     def browse_sap():
         path = filedialog.askopenfilename(

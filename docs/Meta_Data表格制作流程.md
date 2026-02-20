@@ -149,11 +149,16 @@
   - 随机未接受研究治疗（对应原因3）
 
 #### 制作步骤
-1. 打开 EDCDEF_code SAS数据集
-2. 查找变量：CODE_NAME_CHN = 随访结束原因 或 随访结束主要原因 或 研究结束原因 或 原因结束主要原因
-3. 按CODE_ORDER值的顺序提取原因（原因即CODE_LABEL列的值）
-4. 每个原因后增加一行"随机未接受研究治疗"
-5. Filter条件：在上一条原因的filter条件基础上，额外增加筛选条件 `RANDFL='Y' and TRTSDT NE .`
+1. **前3行强制赋值**（SEC=06_fup，DSNIN=adsl，TRTSUBN=trt01pn，TRTSUBC=trt01p）  
+   - 第1行：TEXT=完成研究，LINE_BREAK=1，FILTER=`saffl='Y' and EOSSTT='完成研究'`  
+   - 第2行：TEXT=退出研究，FILTER=`saffl='Y' and EOSSTT='退出研究'`  
+   - 第3行：TEXT=退出研究原因，FILTER=0  
+2. 打开 EDCDEF_code SAS 数据集，查找变量：CODE_NAME_CHN = 随访结束原因 / 随访结束主要原因 / 研究结束原因 / 原因结束主要原因  
+3. 按 CODE_ORDER 顺序提取原因（原因即 CODE_LABEL 列的值）  
+4. **隔行增加一行**：每个原因一行，紧跟一行「随机未接受研究治疗」  
+   - 原因行：LINE_BREAK=1，INDENT=1，FILTER=`saffl='Y' and EOSSTT='退出研究' and dcsreas='原因'`（变量名小写 dcsreas）  
+   - 下一行：TEXT=随机未接受研究治疗，LINE_BREAK=2，FILTER=上一条 FILTER + ` and randfl='Y' and saffl='N'`  
+5. 对应变量名：EOSSTT（研究结束状态）、DCSREAS（退出研究原因）
 
 ## 四、关键变量对照表
 
