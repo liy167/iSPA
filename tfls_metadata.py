@@ -565,19 +565,23 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
     return rows
 
 
+# 第一步 T14_1-1_1.xlsx 表头列名（不含 ROW、FOOTNOTE），与 build_t14_1_1_1_rows 返回的 dict 部分键对应
+_T14_1_1_1_COLUMNS = (
+    "TEXT", "MASK", "LINE_BREAK", "INDENT", "SEC", "TRT_I", "DSNIN", "TRTSUBN", "TRTSUBC", "FILTER",
+)
+
+
 def write_t14_1_1_1_xlsx(xlsx_path, rows):
-    """将受试者分布行写入 Excel，列：TEXT, ROW, MASK, LINE_BREAK, INDENT, SEC, TRT_I, DSNIN, TRTSUBN, TRTSUBC, FILTER, FOOTNOTE。"""
+    """将受试者分布行写入 Excel，不包含 ROW、FOOTNOTE 列：TEXT, MASK, LINE_BREAK, INDENT, SEC, TRT_I, DSNIN, TRTSUBN, TRTSUBC, FILTER。"""
     from openpyxl import Workbook
     wb = Workbook()
     ws = wb.active
     ws.title = "受试者分布"
-    ws.append(["TEXT", "ROW", "MASK", "LINE_BREAK", "INDENT", "SEC", "TRT_I", "DSNIN", "TRTSUBN", "TRTSUBC", "FILTER", "FOOTNOTE"])
+    ws.append(list(_T14_1_1_1_COLUMNS))
+    defaults = {"TEXT": "", "MASK": "", "LINE_BREAK": "", "INDENT": "", "SEC": "", "TRT_I": "", "DSNIN": "", "TRTSUBN": "", "TRTSUBC": "", "FILTER": ""}
     for r in rows:
-        ws.append([
-            r.get("TEXT", ""), r.get("ROW", 0), r.get("MASK", ""), r.get("LINE_BREAK", ""), r.get("INDENT", ""),
-            r.get("SEC", ""), r.get("TRT_I", ""), r.get("DSNIN", ""), r.get("TRTSUBN", ""), r.get("TRTSUBC", ""),
-            r.get("FILTER", ""), r.get("FOOTNOTE", ""),
-        ])
+        row = [r.get(k, defaults.get(k, "")) for k in _T14_1_1_1_COLUMNS]
+        ws.append(row)
     d = os.path.dirname(xlsx_path)
     if d:
         os.makedirs(d, exist_ok=True)
@@ -785,6 +789,34 @@ def show_metadata_setup_dialog(gui):
     if not os.path.isdir(default_edc_dir):
         default_edc_dir = os.path.join(base_path, "metadata")
 
+    # ADaM 数据集说明：在该文件夹下自动查找文件名同时含 ADAM、PDS 的 .xlsx，没有则留空
+    adam_doc_dir = os.path.join(base_path, "utility", "documentation")
+    if not os.path.isdir(adam_doc_dir):
+        adam_doc_dir = os.path.join(base_path, "utility", "documents")
+
+    def _find_adam_pds_xlsx(d):
+        if not d or not os.path.isdir(d):
+            return None
+        cands = []
+        for name in os.listdir(d):
+            if not name.lower().endswith(".xlsx"):
+                continue
+            n = name.lower()
+            if "adam" in n and "pds" in n:
+                p = os.path.join(d, name)
+                if os.path.isfile(p):
+                    cands.append((os.path.getmtime(p), p))
+        if not cands:
+            return None
+        cands.sort(key=lambda x: -x[0])
+        return cands[0][1]
+
+    default_adam = _find_adam_pds_xlsx(adam_doc_dir)
+    if not default_adam:
+        default_adam = _find_adam_pds_xlsx(os.path.join(base_path, "utility", "documents"))
+    if not default_adam:
+        default_adam = ""  # 未找到则留空
+
     row_t14 = tk.Frame(main, bg="#f0f0f0")
     row_t14.pack(anchor="w", fill=tk.X, pady=(0, 6))
     tk.Label(row_t14, text="T14_1-1_1.xlsx：", font=("Microsoft YaHei UI", 9), width=22, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
@@ -809,16 +841,14 @@ def show_metadata_setup_dialog(gui):
     tk.Label(row_adam, text="ADaM 数据集说明（Excel）：", font=("Microsoft YaHei UI", 9), width=22, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
     adam_entry = tk.Entry(row_adam, width=72, font=("Microsoft YaHei UI", 9))
     adam_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
-    default_adam = os.path.join(default_edc_dir, "ADaM_spec.xlsx")
-    if not os.path.isfile(default_adam):
-        default_adam = os.path.join(default_adam_dir, "ADaM_spec.xlsx")
-    adam_entry.insert(0, default_adam if os.path.isfile(default_adam) else os.path.join(default_edc_dir, "ADaM_spec.xlsx"))
+    if default_adam:
+        adam_entry.insert(0, default_adam)
 
     def browse_adam():
         path = filedialog.askopenfilename(
             title="选择 ADaM 数据集说明文件（Excel）",
             filetypes=[("Excel", "*.xlsx"), ("Excel 97", "*.xls"), ("All", "*.*")],
-            initialdir=default_adam_dir if os.path.isdir(default_adam_dir) else base_path,
+            initialdir=adam_doc_dir if os.path.isdir(adam_doc_dir) else base_path,
         )
         if path:
             adam_entry.delete(0, tk.END)
@@ -932,15 +962,30 @@ def show_metadata_setup_dialog(gui):
     )
     step2_title.pack(anchor="w", pady=(24, 10))
 
-    # SAP 文件（.docx）初始路径：前四个下拉框 + utility\documentation\03_statistics\
+    # SAP 文件（.docx）默认：在默认目录下查找文件名中包含 SAP 的 .docx（不区分大小写）
     default_sap_dir = os.path.join(base_path, "utility", "documentation", "03_statistics")
     default_metadata_dir = os.path.join(base_path, "utility", "metadata")
     default_xlsx_step2 = os.path.join(default_metadata_dir, "T14_1-1_2.xlsx")
-    default_sap = os.path.join(default_sap_dir, "SAP.docx")
-    if not os.path.isfile(default_sap):
-        default_sap = os.path.join(base_path, "utility", "documentation", "SAP.docx")
-    if not os.path.isfile(default_sap):
-        default_sap = os.path.join(default_sap_dir, "SAP.docx")  # 无文件时仍显示默认路径供浏览
+
+    def _find_sap_docx_in_dir(d):
+        if not d or not os.path.isdir(d):
+            return None
+        cands = []
+        for name in os.listdir(d):
+            if name.lower().endswith(".docx") and "sap" in name.lower():
+                p = os.path.join(d, name)
+                if os.path.isfile(p):
+                    cands.append((os.path.getmtime(p), p))
+        if not cands:
+            return None
+        cands.sort(key=lambda x: -x[0])  # 按修改时间取最新
+        return cands[0][1]
+
+    default_sap = _find_sap_docx_in_dir(default_sap_dir)
+    if not default_sap:
+        default_sap = _find_sap_docx_in_dir(os.path.join(base_path, "utility", "documentation"))
+    if not default_sap:
+        default_sap = os.path.join(default_sap_dir, "SAP.docx")  # 无匹配时仍显示默认路径供浏览
 
     row_sap = tk.Frame(main, bg="#f0f0f0")
     row_sap.pack(anchor="w", fill=tk.X, pady=(0, 6))
