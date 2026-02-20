@@ -59,9 +59,15 @@ _T14_04_ROWS_RANDFL = ("随机受试者", "随机未接受研究治疗", "随机
 _T14_04_FILTERS_RANDFL = ("randfl='Y' and scfailfl='N'", "randfl='Y' and scfailfl='N' and saffl='N'", "randfl='Y' and scfailfl='N' and saffl='Y'")
 _T14_04_ROWS_ENRLFL = ("入组受试者", "入组未接受研究治疗", "入组且接受研究治疗")
 _T14_04_FILTERS_ENRLFL = ("enrlfl='Y' and scfailfl='N'", "enrlfl='Y' and scfailfl='N' and saffl='N'", "enrlfl='Y' and scfailfl='N' and saffl='Y'")
-# 05部分
-_T14_05_HEADER = "完成研究治疗汇总"
-_T14_05_TITLE = "终止研究治疗"
+# 05部分（完成/终止研究治疗，前 3 行 TEXT 由变量标签动态生成）
+# 规则：从变量标签中保留「治疗」两字作为 base（去掉其他字样），第1行=「完成研究」+base，第2行=「终止研究」+base，第3行=「终止研究」+base+「原因」
+_T14_05_SEC = "05_trt"
+_T14_05_DATASET = "ADSL"          # 宏：Variables sheet 中用于查找治疗结束状态的数据集名，可配置
+_T14_05_VAR_EOTSTT = "EOTSTT"     # 宏：治疗结束状态变量名前缀，可配置；匹配以该前缀开头的变量（如 EOTSTT、EOTSTT1、EOTSTT2）
+_T14_05_BASE_KEEP = "治疗"        # 从变量标签中保留此二字作为 base，去掉其余字样（不固定后缀）
+_T14_05_PREFIX_COMPLETE = "完成研究"
+_T14_05_PREFIX_TERMINATE = "终止研究"
+_T14_05_DEFAULT_LABEL = "治疗结束状态"  # 未从 ADaM 解析到时的默认标签
 # 06部分
 _T14_06_COMPLETE = "完成随访"
 _T14_06_WITHDRAW = "退出随访"
@@ -202,6 +208,83 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
     return result
 
 
+def _t14_05_texts_from_label(label):
+    """
+    从变量标签生成 05 部分前 3 行 TEXT。
+    规则：从标签中保留「治疗」两字作为 base（去掉其他字样，不固定后缀），第1行=「完成研究」+base，第2行=「终止研究」+base，第3行=「终止研究」+base+「原因」。
+    返回: (row1_text, row2_text, row3_text)
+    """
+    label = (label or "").strip() or _T14_05_DEFAULT_LABEL
+    keep = _T14_05_BASE_KEEP
+    base = keep if keep and keep in label else (label or keep)
+    if not base:
+        base = "治疗"
+    row1 = _T14_05_PREFIX_COMPLETE + base
+    row2 = _T14_05_PREFIX_TERMINATE + base
+    row3 = _T14_05_PREFIX_TERMINATE + base + "原因"
+    return (row1, row2, row3)
+
+
+def parse_adam_spec_for_eotstt_label(adam_excel_path):
+    """
+    从 ADaM 数据集说明 Excel 的 variables sheet 中，在 _T14_05_DATASET 下查找变量（治疗结束状态）：
+    优先精确匹配 _T14_05_VAR_EOTSTT，否则匹配以该前缀开头的变量（如 EOTSTT1、EOTSTT2）。
+    返回 (Variable Label/标签列取值, 实际匹配到的变量名)，用于 05 部分 TEXT 与 FILTER；未找到则返回 (默认标签, 宏变量名)。
+    """
+    default_label = _T14_05_DEFAULT_LABEL
+    default_var = _T14_05_VAR_EOTSTT.strip()
+    try:
+        import pandas as pd
+    except ImportError:
+        return (default_label, default_var or "EOTSTT")
+
+    if not adam_excel_path or not os.path.isfile(adam_excel_path):
+        return (default_label, default_var or "EOTSTT")
+
+    try:
+        xl = pd.ExcelFile(adam_excel_path)
+        sheet_name = None
+        for s in xl.sheet_names:
+            if "variable" in s.lower():
+                sheet_name = s
+                break
+        if sheet_name is None:
+            return (default_label, default_var or "EOTSTT")
+        df = pd.read_excel(adam_excel_path, sheet_name=sheet_name, header=0)
+        if df.empty:
+            return (default_label, default_var or "EOTSTT")
+
+        col_dataset = _find_excel_column(df, ("Dataset", "Data Set", "数据集", "Dataset Name"))
+        col_var = _find_excel_column(df, ("Variable", "变量", "Variable Name"))
+        col_label = _find_excel_column(df, ("Variable Label", "Label", "变量标签", "标签", "VariableLabel"))
+        if col_dataset is None or col_var is None:
+            return (default_label, default_var or "EOTSTT")
+
+        ds_col = df[col_dataset].astype(str).str.strip()
+        adsl_mask = ds_col.str.upper() == _T14_05_DATASET.upper()
+        adsl_df = df.loc[adsl_mask]
+        if adsl_df.empty:
+            return (default_label, default_var or "EOTSTT")
+
+        var_col = adsl_df[col_var].astype(str).str.strip()
+        var_upper = var_col.str.upper()
+        prefix = (default_var or "EOTSTT").upper()
+        # 优先精确匹配（如 EOTSTT），否则匹配以该前缀开头的变量（如 EOTSTT1、EOTSTT2）
+        eotstt_mask = (var_upper == prefix) if prefix else (var_col == "")
+        if not eotstt_mask.any() and prefix:
+            eotstt_mask = var_upper.str.startswith(prefix)
+        if not eotstt_mask.any():
+            return (default_label, default_var or "EOTSTT")
+        if col_label is None:
+            return (default_label, default_var or "EOTSTT")
+        matched_row = adsl_df.loc[eotstt_mask].iloc[0]
+        label_val = str(matched_row[col_label] or "").strip()
+        actual_var = str(matched_row[col_var] or "").strip() or default_var
+        return (label_val if label_val else default_label, actual_var)
+    except Exception:
+        return (default_label, default_var or "EOTSTT")
+
+
 def read_edcdef_code(edc_path):
     """
     读取 EDCDEF_code 数据集（SAS 或 Excel 导出），按 CODE_NAME_CHN 提取 CODE_ORDER、CODE_LABEL。
@@ -323,13 +406,15 @@ def _get_screen_fail_reasons(edc_data):
     return []
 
 
-def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, screen_fail_reasons=None):
+def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, screen_fail_reasons=None, treatment_end_label=None, treatment_end_var_name=None):
     """
     按 Meta_Data 流程构建 T14_1-1_1 受试者分布的所有行。
-    randfl_enrlfl_flags: tuple of "randfl" 和/或 "enrlfl"，如 ("randfl",)、("enrlfl",)、("randfl", "enrlfl")。每个 flag 输出「第10行+3行」块：筛选成功未随机/未入组 + 对应 04 三行。
+    randfl_enrlfl_flags: tuple of "randfl" 和/或 "enrlfl"。每个 flag 输出「第10行+3行」块。
     dct_reasons: 治疗结束原因列表
     followup_reasons: 随访结束原因列表
-    screen_fail_reasons: 筛选失败原因列表（来自 EDCDEF CODE_NAME_CHN=筛选结束原因，按 CODE_ORDER）
+    screen_fail_reasons: 筛选失败原因列表
+    treatment_end_label: 「治疗结束状态」类变量标签，用于动态生成 05 部分前 3 行 TEXT；None 时用默认。
+    treatment_end_var_name: 实际变量名（如 EOTSTT、EOTSTT1），用于 05 部分 FILTER；None 时用 _T14_05_VAR_EOTSTT。
     返回: list of dict with keys: TEXT, ROW, MASK, LINE_BREAK, INDENT, SEC, TRT_I, DSNIN, TRTSUBN, TRTSUBC, FILTER, FOOTNOTE
     """
     def _empty_meta():
@@ -402,15 +487,37 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
                 "FILTER": f, "FOOTNOTE": "",
             })
 
-    # 05部分
+    # 05部分：前 3 行 TEXT 由 treatment_end_label 动态生成（去掉「结束状态」得 base，再拼「完成研究」/「终止研究」）
+    row1_text, row2_text, row3_text = _t14_05_texts_from_label(treatment_end_label)
+    row1_esc = (row1_text or "").replace("'", "''")
+    row2_esc = (row2_text or "").replace("'", "''")
+    var_eotstt = (treatment_end_var_name or _T14_05_VAR_EOTSTT or "EOTSTT").strip()
+    filter_row1 = "saffl='Y' and %s='%s'" % (var_eotstt, row1_esc)
+    filter_row2 = "saffl='Y' and %s='%s'" % (var_eotstt, row2_esc)
+    em_05 = {"SEC": _T14_05_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC}
     row_num += 1
-    em = _empty_meta()
-    rows.append({"TEXT": _T14_05_HEADER, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **em, "FILTER": "", "FOOTNOTE": ""})
+    rows.append({
+        "TEXT": row1_text, "ROW": row_num, "MASK": "", "LINE_BREAK": "1", "INDENT": "",
+        **em_05, "FILTER": filter_row1, "FOOTNOTE": "",
+    })
     row_num += 1
-    rows.append({"TEXT": _T14_05_TITLE, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": "", "FOOTNOTE": ""})
-    for idx, reason in enumerate(dct_reasons):
+    rows.append({
+        "TEXT": row2_text, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        **em_05, "FILTER": filter_row2, "FOOTNOTE": "",
+    })
+    row_num += 1
+    rows.append({
+        "TEXT": row3_text, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "",
+        **em_05, "FILTER": "0", "FOOTNOTE": "",
+    })
+    for reason in dct_reasons:
         row_num += 1
-        rows.append({"TEXT": reason, "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "", **_empty_meta(), "FILTER": "DCTREAS=%d" % idx, "FOOTNOTE": ""})
+        reason_esc = (reason or "").replace("'", "''")
+        filter_dct = "%s and dctreas='%s'" % (filter_row2, reason_esc)
+        rows.append({
+            "TEXT": reason or "", "ROW": row_num, "MASK": "", "LINE_BREAK": "", "INDENT": "1",
+            **em_05, "FILTER": filter_dct, "FOOTNOTE": "",
+        })
 
     # 06部分
     row_num += 1
@@ -742,6 +849,11 @@ def show_metadata_setup_dialog(gui):
         followup_reasons = _get_followup_reasons(edc_data)
         screen_fail_reasons = _get_screen_fail_reasons(edc_data)
 
+        treatment_end_label = None
+        treatment_end_var_name = None
+        if adam_path and os.path.isfile(adam_path):
+            treatment_end_label, treatment_end_var_name = parse_adam_spec_for_eotstt_label(adam_path)
+
         try:
             if os.path.isfile(path):
                 backup_path = _backup_existing_to_archive(path)
@@ -750,7 +862,7 @@ def show_metadata_setup_dialog(gui):
             d = os.path.dirname(path)
             if d:
                 os.makedirs(d, exist_ok=True)
-            rows = build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, screen_fail_reasons)
+            rows = build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, screen_fail_reasons, treatment_end_label, treatment_end_var_name)
             write_t14_1_1_1_xlsx(path, rows)
             gui.update_status("已初始化 T14_1-1_1.xlsx（共 %d 行）：%s" % (len(rows), path))
             if messagebox.askyesno("成功", "已生成初版 T14_1-1_1.xlsx（01/04/05/06 四部分，共 %d 行）。\n\n是否审阅并打开生成文件？" % len(rows)):

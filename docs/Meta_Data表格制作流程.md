@@ -101,23 +101,31 @@
 
 ### 第三部分：05部分（完成/终止研究治疗）
 
-#### 结构说明
-| 行类型 | 内容 | 数据来源 |
-|:---|:---|:---|
-| 第1行 | 汇总行 | 硬写（完成研究治疗汇总） |
-| 接下来 | 终止研究治疗赋值 | 硬写 |
-| 详细原因行 | 终止研究治疗原因详述 | EDC数据集 |
+#### 前 3 行 TEXT 动态生成规则
 
-#### 终止原因详细制作步骤
-1. 打开数据集：EDCDEF_code SAS数据集
-2. 查找变量 CODE_NAME_CHN = "治疗结束主要原因"
-3. 提取内容：按CODE_ORDER列值的顺序提取CODE_LABEL的值
-4. 填写规则：
-   - 原因值 = 0
-   - 按EDC数据集中的顺序依次罗列所有原因
-   - 每个原因后写明具体终止原因描述
+前 3 行 TEXT **不固定**，由 ADaM Variables sheet 中 **指定数据集下指定变量（治疗结束状态）的 Variable Label** 动态生成。
 
-**对应变量名：** DCTREAS（ADSL数据集，变量=DCTREAS研究治疗终止的具体原因）
+**可配置宏（代码 `tfls_metadata.py` 05 部分）：** `_T14_05_DATASET`（默认 "ADSL"）、`_T14_05_VAR_EOTSTT`（默认 "EOTSTT"），修改后即可更换数据集名与变量名。
+
+1. **数据来源：** Variables sheet → Dataset=*_T14_05_DATASET* → Variable=*_T14_05_VAR_EOTSTT* → 取「Variable Label」/「标签」列的值（如「治疗结束状态」）。未找到时使用默认「治疗结束状态」。
+2. **生成规则：** 从标签中**保留「治疗」两字**作为 base（去掉其余字样，不固定后缀），则：
+   - **第 1 行 TEXT** = 「完成研究」+ base，FILTER = `saffl='Y' and [变量名]='[第1行TEXT]'`
+   - **第 2 行 TEXT** = 「终止研究」+ base，FILTER = `saffl='Y' and [变量名]='[第2行TEXT]'`
+   - **第 3 行 TEXT** = 「终止研究」+ base + 「原因」，FILTER = 0（标题行）
+
+| 行 | LINE_BREAK | INDENT | SEC | DSNIN | TRTSUBN | TRTSUBC |
+|:---|:---|:---|:---|:---|:---|:---|
+| 第1行 | 1 | 空 | 05_trt | adsl | trt01pn | trt01p |
+| 第2行 | 空 | 空 | 05_trt | adsl | trt01pn | trt01p |
+| 第3行 | 空 | 空 | 05_trt | adsl | trt01pn | trt01p |
+
+#### 终止原因详细行（第 4 行起，来自 EDCDEF）
+
+- **数据来源：** EDCDEF_code，CODE_NAME_CHN =「治疗结束主要原因」或「治疗结束原因」，按 CODE_ORDER 顺序取 CODE_LABEL。
+- **每行：** TEXT = CODE_LABEL 值，INDENT = 1，LINE_BREAK = 空，SEC/DSNIN/TRTSUBN/TRTSUBC 同前 3 行。
+- **FILTER：** `saffl='Y' and EOTSTT='[第2行TEXT]' and DCTREAS='该行原因文本'`（与 ADSL 变量 DCTREAS 一致，字符串内单引号需双写）。
+
+**对应变量名：** EOTSTT（治疗结束状态）、DCTREAS（研究治疗终止的具体原因）
 
 ### 第四部分：06部分（随访结束/完成研究）
 
