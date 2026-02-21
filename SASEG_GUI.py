@@ -10,6 +10,8 @@ from pywinauto.application import Application
 from tfls_pdt import show_pdt_dialog
 from tfls_metadata import show_metadata_setup_dialog
 from tfls_init_pgm import run_initial_pgm
+from tfls_batch_run import run_batch_run
+from tfls_combine import run_tfls_combine
 from pywinauto.keyboard import send_keys
 
 # 忽略 UserWarning 警告
@@ -274,7 +276,7 @@ class SASEGGUI:
                 text=label_text,
                 command=lambda page_id=label_text: self._switch_page(page_id),
                 width=8,
-                font=("Arial", 9),
+                font=("Arial", 10, "bold"),
                 bg="#9e9e9e",
                 fg="white",
                 activebackground="#757575",
@@ -371,8 +373,8 @@ class SASEGGUI:
                     text="Metadata\nSetup",
                     command=lambda: show_metadata_setup_dialog(self),
                     width=btn_width,
-                    font=("Microsoft YaHei UI", 10),
-                    bg="#9e9e9e",
+                    font=("Microsoft YaHei UI", 10, "bold"),
+                    bg="#205572",
                     fg="white",
                     relief=tk.FLAT,
                     cursor="hand2",
@@ -385,8 +387,8 @@ class SASEGGUI:
                     text="PDT\nGen",
                     command=lambda: show_pdt_dialog(self),
                     width=btn_width,
-                    font=("Microsoft YaHei UI", 10),
-                    bg="#9e9e9e",
+                    font=("Microsoft YaHei UI", 10, "bold"),
+                    bg="#205572",
                     fg="white",
                     relief=tk.FLAT,
                     cursor="hand2",
@@ -399,8 +401,8 @@ class SASEGGUI:
                     text="Initial\nPGM",
                     command=lambda: run_initial_pgm(self),
                     width=btn_width,
-                    font=("Microsoft YaHei UI", 10),
-                    bg="#9e9e9e",
+                    font=("Microsoft YaHei UI", 10, "bold"),
+                    bg="#205572",
                     fg="white",
                     relief=tk.FLAT,
                     cursor="hand2",
@@ -411,10 +413,10 @@ class SASEGGUI:
                 btn_batch_run = tk.Button(
                     btn_row,
                     text="Batch\nRun",
-                    command=lambda: None,  # 稍后补充
+                    command=lambda: run_batch_run(self),
                     width=btn_width,
-                    font=("Microsoft YaHei UI", 10),
-                    bg="#9e9e9e",
+                    font=("Microsoft YaHei UI", 10, "bold"),
+                    bg="#205572",
                     fg="white",
                     relief=tk.FLAT,
                     cursor="hand2",
@@ -425,10 +427,10 @@ class SASEGGUI:
                 btn_tfls_combine = tk.Button(
                     btn_row,
                     text="TFLs\nCombine",
-                    command=lambda: None,  # 稍后补充
+                    command=lambda: run_tfls_combine(self),
                     width=btn_width,
-                    font=("Microsoft YaHei UI", 10),
-                    bg="#9e9e9e",
+                    font=("Microsoft YaHei UI", 10, "bold"),
+                    bg="#205572",
                     fg="white",
                     relief=tk.FLAT,
                     cursor="hand2",
