@@ -552,13 +552,13 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
         reason_esc = (reason or "").replace("'", "''")
         reason_filter = "%s and dcsreas='%s'" % (_T14_06_FILTER_ROW2, reason_esc)
         rows.append({
-            "TEXT": reason or "", "MASK": "", "LINE_BREAK": "1", "INDENT": "1",
+            "TEXT": reason or "", "MASK": "", "LINE_BREAK": "", "INDENT": "1",
             **em_06, "FILTER": reason_filter,
         })
         row_num += 1
         extra_filter = reason_filter + _T14_06_EXTRA_SUFFIX
         rows.append({
-            "TEXT": _T14_06_EXTRA, "MASK": "", "LINE_BREAK": "2", "INDENT": "",
+            "TEXT": _T14_06_EXTRA, "MASK": "", "LINE_BREAK": "", "INDENT": "2",
             **em_06, "FILTER": extra_filter,
         })
 
