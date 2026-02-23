@@ -529,9 +529,10 @@ def show_pdt_dialog(gui):
             return
         if success:
             gui.update_status(msg)
-            # 成功弹窗：主文案、路径、第三行「是否审阅并打开生成文件?」、按钮「是(Y)」「否(N)」
+            # 成功弹窗：主文案、路径、第三行「是否审阅并打开文件?」、按钮「是(Y)」「否(N)」
             success_win = tk.Toplevel(dlg)
             success_win.title("成功")
+            success_win.geometry("750x300")
             success_win.transient(dlg)
             success_win.resizable(False, False)
             success_win.configure(bg="#eaeaea")
@@ -550,10 +551,10 @@ def show_pdt_dialog(gui):
             tk.Label(
                 content, text=study_path,
                 font=("Segoe UI", 10), fg="#000000", bg="#eaeaea",
-                wraplength=420, justify=tk.LEFT
+                wraplength=700, justify=tk.LEFT
             ).pack(anchor="w", pady=(0, 8))
             tk.Label(
-                content, text="是否审阅并打开生成文件?",
+                content, text="是否审阅并打开文件?",
                 font=("Segoe UI", 10), fg="#000000", bg="#eaeaea",
                 wraplength=420, justify=tk.LEFT
             ).pack(anchor="w", pady=(0, 16))
