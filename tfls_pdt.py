@@ -25,6 +25,10 @@ def convert_windows_path_to_linux(win_path):
 
 
 # ---------- TOC 生成（初版TOC）所需常量与函数 ----------
+# 当问题1 仅选择一个答案时，TOC.xlsx 命名规则（与 OUTTITLE 一致，不追加设计类型后缀）：
+#   OUTTITLE：取模板标题（Title_CN/Title_EN），不追加设计类型后缀；[Analyte]/[AEACN] 按规则替换为具体值。
+#   OUTREF：不追加设计类型序号，为 Template# 或 Template#.aeacn序号 或 Template#.analyte序号。
+#           例：14.1、14.3.1-5.1（AEACN 第1个）、14.1.2（Analyte 第2个）。多选设计类型时才追加 .设计类型序号。
 _TOC_COLS = [
     "Template#", "Output Type", "Title_CN", "Title_EN", "Population",
     "Footnotes_CN", "Footnotes_EN", "Category_CN", "SAD", "FE", "MAD", "BE", "MB"
@@ -38,6 +42,11 @@ _ENDPOINT_TO_CATEGORY = {
 }
 _DESIGN_TYPE_COLS = ["SAD", "FE", "MAD", "BE", "MB"]
 _PLACEHOLDER_ANALYTE = "[Analyte]"
+_PLACEHOLDER_AEACN = "[AEACN]"
+_AEACN_EXCLUDED_LABELS = frozenset(
+    s.strip().upper() for s in
+    ("剂量不变", "不适用", "DOSE NOT CHANGED", "NOT APPLICABLE")
+)
 _SUBTYPE_TERMS = {
     "血": ["血", "Blood", "blood", "血浆", "Plasma", "plasma"],
     "尿": ["尿", "Urine", "urine"],
@@ -87,6 +96,81 @@ def _toc_normalize_analyte_placeholder(s):
     return s
 
 
+def _edcdef_code_aeacn_labels(edcdef_code_path):
+    """
+    从 EDCDEF_code.sas7bdat（或 .xlsx）中读取 CODE_NAME='AEACN' 的 CODE_LABEL 列表。
+    筛选条件：CODE_NAME='AEACN' 且 CODE_LABEL 不在 ('剂量不变','不适用','DOSE NOT CHANGED','NOT APPLICABLE')；
+    按 CODE_ORDER 排序后返回 CODE_LABEL 值列表。文件不存在或读取失败返回 []。
+    """
+    if not edcdef_code_path or not os.path.isfile(edcdef_code_path):
+        return []
+    ext = os.path.splitext(edcdef_code_path)[1].lower()
+    try:
+        if ext == ".sas7bdat":
+            import pyreadstat
+            df, _ = pyreadstat.read_sas7bdat(edcdef_code_path)
+        elif ext in (".xlsx", ".xls"):
+            import pandas as pd
+            df = pd.read_excel(edcdef_code_path, header=0)
+        else:
+            return []
+    except Exception:
+        return []
+    if df is None or df.empty:
+        return []
+    cols_upper = {str(c).upper(): c for c in df.columns}
+    code_name_col = cols_upper.get("CODE_NAME") or cols_upper.get("CODE_NAME_CHN")
+    code_label_col = cols_upper.get("CODE_LABEL")
+    code_order_col = cols_upper.get("CODE_ORDER") or cols_upper.get("CODE_ORDER_R")
+    if code_name_col is None or code_label_col is None:
+        return []
+    name_vals = df[code_name_col].astype(str).str.strip()
+    aeacn_mask = name_vals.str.upper() == "AEACN"
+    if not aeacn_mask.any():
+        return []
+    sub = df.loc[aeacn_mask].copy()
+    label_vals = sub[code_label_col].astype(str).str.strip()
+    excluded = _AEACN_EXCLUDED_LABELS
+    keep = ~label_vals.str.upper().isin(excluded)
+    sub = sub.loc[keep]
+    if sub.empty:
+        return []
+    if code_order_col is not None:
+        try:
+            sub = sub.sort_values(by=code_order_col)
+        except Exception:
+            pass
+    return sub[code_label_col].astype(str).str.strip().tolist()
+
+
+def _edcdef_ecrf_has_ae_aedis(edcdef_ecrf_path):
+    """
+    读取 utility\\metadata\\EDCDEF_ecrf.sas7bdat，当 EDC_DATA='AE' 时是否存在 EDC_VARIABLE='AEDIS'。
+    若文件不存在或读取失败返回 False。
+    """
+    if not edcdef_ecrf_path or not os.path.isfile(edcdef_ecrf_path):
+        return False
+    try:
+        import pyreadstat
+        df, _ = pyreadstat.read_sas7bdat(edcdef_ecrf_path)
+    except Exception:
+        return False
+    if df is None or df.empty:
+        return False
+    # 列名可能为大写或混合
+    cols = {c.upper(): c for c in df.columns}
+    edc_data_col = cols.get("EDC_DATA") or cols.get("EDC_DATA".lower())
+    edc_var_col = cols.get("EDC_VARIABLE") or cols.get("EDC_VARIABLE".lower())
+    if edc_data_col is None or edc_var_col is None:
+        return False
+    ae_mask = df[edc_data_col].astype(str).str.strip().str.upper() == "AE"
+    if not ae_mask.any():
+        return False
+    ae_df = df.loc[ae_mask]
+    aedis_mask = ae_df[edc_var_col].astype(str).str.strip().str.upper() == "AEDIS"
+    return aedis_mask.any()
+
+
 def _toc_read_rows(toc_path):
     """读取 TOC 的 PH1 sheet，返回行列表（每行为 dict）。"""
     wb = load_workbook(toc_path, read_only=True, data_only=True)
@@ -113,12 +197,13 @@ def _toc_read_rows(toc_path):
     return rows
 
 
-def _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_names=None):
-    """按设计类型、终点、分析物筛选并展开，生成 TOC 行。"""
+def _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_names=None, aeacn_labels=None):
+    """按设计类型、终点、分析物、[AEACN] 筛选并展开，生成 TOC 行。aeacn_labels 来自 EDCDEF_code CODE_NAME='AEACN' 的 CODE_LABEL 列表（已排序）。"""
     use_title = "Title_CN" if use_cn else "Title_EN"
     use_footnotes = "Footnotes_CN" if use_cn else "Footnotes_EN"
     placeholder = _PLACEHOLDER_ANALYTE
     analytes = [a.strip() for a in (analyte_names or "").split("|") if a.strip()] if analyte_names else []
+    aeacn_list = list(aeacn_labels) if aeacn_labels else []
     base_categories = set()
     for ep in endpoints:
         if ep in _ENDPOINT_TO_CATEGORY:
@@ -173,16 +258,30 @@ def _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analy
             if dt_cols_present and (dt_val is None or (isinstance(dt_val, str) and not str(dt_val).strip())):
                 continue
             design_ordinal = design_types.index(dt) + 1
-            base_title = title if len(design_types) == 1 else (f"{title} - {dt}" if title else dt)
+            single_design = len(design_types) == 1
+            base_title = title if single_design else (f"{title} - {dt}" if title else dt)
 
-            def _build_out_ref(analyte_idx=None):
+            def _build_out_ref(analyte_idx=None, aeacn_idx=None):
                 parts = [template_num] if template_num else []
+                if aeacn_idx is not None:
+                    parts.append(str(aeacn_idx))
                 if analyte_idx is not None:
                     parts.append(str(analyte_idx))
-                parts.append(str(design_ordinal))
+                if not single_design:
+                    parts.append(str(design_ordinal))
                 return ".".join(parts)
 
-            if placeholder in base_title and analytes:
+            if _PLACEHOLDER_AEACN in base_title and aeacn_list:
+                for idx, label in enumerate(aeacn_list, start=1):
+                    title_with_dt = base_title.replace(_PLACEHOLDER_AEACN, label)
+                    out_ref = _build_out_ref(aeacn_idx=idx)
+                    result.append({
+                        "Output Type": output_type, "Title": title_with_dt, "Population": population,
+                        "Footnotes": footnotes, "Output Reference": out_ref,
+                    })
+            elif _PLACEHOLDER_AEACN in base_title and not aeacn_list:
+                continue
+            elif placeholder in base_title and analytes:
                 for idx, analyte in enumerate(analytes, start=1):
                     title_with_dt = base_title.replace(placeholder, analyte)
                     out_ref = _build_out_ref(analyte_idx=idx)
@@ -191,7 +290,7 @@ def _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analy
                         "Footnotes": footnotes, "Output Reference": out_ref,
                     })
             else:
-                title_with_dt = base_title.replace(placeholder, analytes[0] if analytes else "") if placeholder in base_title else base_title
+                title_with_dt = base_title.replace(_PLACEHOLDER_AEACN, "").replace(placeholder, analytes[0] if analytes else "") if (_PLACEHOLDER_AEACN in base_title or placeholder in base_title) else base_title
                 out_ref = _build_out_ref()
                 result.append({
                     "Output Type": output_type, "Title": title_with_dt, "Population": population,
@@ -200,10 +299,13 @@ def _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analy
     return result
 
 
-def gen_toc_study(template_path, study_path, setup_path, design_types, endpoints, analyte_names=None):
+def gen_toc_study(template_path, study_path, setup_path, design_types, endpoints, analyte_names=None, edcdef_ecrf_path=None, edcdef_code_path=None):
     """
-    根据 TOC_template.xlsx 与前三个问题（设计类型、终点、分析物），筛选并展开后生成 TOC.xlsx。
+    根据 TOC_template.xlsx 与前三个问题（设计类型、终点、分析物）、[AEACN]，筛选并展开后生成 TOC.xlsx。
     TOC sheet 列：OUTTYPE, OUTREF, OUTTITLE, OUTPOP, OUTNOTE。
+    edcdef_ecrf_path: 若提供，则根据 EDCDEF_ecrf.sas7bdat 中 EDC_DATA='AE' 时是否存在 EDC_VARIABLE='AEDIS'，
+                      决定是否保留 Template# 为 14.3.1-5.1 / 14.3.1-5.2 的行；不存在则不保留。
+    edcdef_code_path: 若提供，则从中读取 CODE_NAME='AEACN' 的 CODE_LABEL 列表，用于展开 [AEACN] 占位符行（Template# 加后缀 .1/.2/...）。
     """
     use_cn = True
     if setup_path and os.path.isfile(setup_path):
@@ -212,7 +314,15 @@ def gen_toc_study(template_path, study_path, setup_path, design_types, endpoints
     toc_rows = _toc_read_rows(template_path)
     if not toc_rows:
         return False, "TOC_template 的 PH1 sheet 未找到或为空"
-    new_rows = _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_names)
+    if edcdef_ecrf_path:
+        keep_14_3_1_5 = _edcdef_ecrf_has_ae_aedis(edcdef_ecrf_path)
+        if not keep_14_3_1_5:
+            toc_rows = [
+                r for r in toc_rows
+                if str(r.get("Template#") or "").strip() not in ("14.3.1-5.1", "14.3.1-5.2")
+            ]
+    aeacn_labels = _edcdef_code_aeacn_labels(edcdef_code_path) if edcdef_code_path else None
+    new_rows = _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_names, aeacn_labels=aeacn_labels)
     toc_sheet_rows = [
         {"OUTTYPE": r.get("Output Type") or "", "OUTREF": r.get("Output Reference") or "",
          "OUTTITLE": r.get("Title") or "", "OUTPOP": r.get("Population") or "", "OUTNOTE": r.get("Footnotes") or ""}
@@ -400,10 +510,19 @@ def show_pdt_dialog(gui):
         if not os.path.isfile(setup_path):
             setup_path = None
 
+        # EDCDEF_ecrf.sas7bdat：前四个下拉框 + utility\metadata\EDCDEF_ecrf.sas7bdat；用于判断是否保留 14.3.1-5.1/14.3.1-5.2
+        edcdef_ecrf_path = os.path.join(base_path, "utility", "metadata", "EDCDEF_ecrf.sas7bdat")
+        # EDCDEF_code.sas7bdat：用于 [AEACN] 展开，CODE_NAME='AEACN' 的 CODE_LABEL 列表（按 CODE_ORDER），排除剂量不变/不适用等
+        edcdef_code_path = os.path.join(base_path, "utility", "metadata", "EDCDEF_code.sas7bdat")
+        if not os.path.isfile(edcdef_code_path):
+            edcdef_code_path = os.path.join(base_path, "utility", "metadata", "EDCDEF_code.xlsx")
+
         try:
             success, msg = gen_toc_study(
                 template_path, study_path, setup_path,
-                design_types, endpoints, analyte_names
+                design_types, endpoints, analyte_names,
+                edcdef_ecrf_path=edcdef_ecrf_path,
+                edcdef_code_path=edcdef_code_path,
             )
         except Exception as e:
             messagebox.showerror("错误", "生成失败：%s" % e)
