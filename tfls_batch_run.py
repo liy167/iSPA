@@ -8,8 +8,9 @@ TFLs 页面 - Batch Run 按钮逻辑（独立模块）
 import glob
 import os
 import re
+import subprocess
 import tkinter as tk
-from tkinter import messagebox, filedialog
+from tkinter import messagebox, filedialog, scrolledtext
 
 
 def _get_project_base_path(gui):
@@ -56,6 +57,48 @@ def _show_log_check_xml_list(parent, base_path, gui):
         listbox.insert(tk.END, os.path.basename(p))
     if not xml_paths:
         listbox.insert(tk.END, "  （07_logs 下暂无 XML 文件）")
+    def on_double_click(event):
+        sel = listbox.curselection()
+        if not sel or not xml_paths:
+            return
+        idx = sel[0]
+        if idx < len(xml_paths):
+            _open_xml_with_excel(xml_paths[idx], gui)
+    listbox.bind("<Double-Button-1>", on_double_click)
+    win.update_idletasks()
+    w, h = 325, 160
+    x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+    win.geometry(f"{w}x{h}+{x}+{y}")
+
+
+def _show_compare_check_xml_list(parent, base_path, gui):
+    """展示 base_path/09_validation 下所有 XML 文件，双击用 Excel 打开。"""
+    validation_dir = os.path.join(base_path, "09_validation")
+    xml_paths = sorted(glob.glob(os.path.join(validation_dir, "*.xml"))) if os.path.isdir(validation_dir) else []
+    win = tk.Toplevel(parent)
+    win.title("Compare Check 生成的 XML 文件")
+    win.geometry("325x160")
+    win.configure(bg="#f0f0f0")
+    win.transient(parent)
+    tk.Label(
+        win, text="双击下方文件使用 Excel 打开。",
+        font=("Microsoft YaHei UI", 9), fg="#333333", bg="#f0f0f0"
+    ).pack(anchor="w", padx=12, pady=(10, 4))
+    list_frame = tk.Frame(win, bg="#f0f0f0")
+    list_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+    scrollbar = tk.Scrollbar(list_frame)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    listbox = tk.Listbox(
+        list_frame, font=("Consolas", 10), yscrollcommand=scrollbar.set,
+        selectmode=tk.SINGLE, activestyle="dotbox", height=12
+    )
+    listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    scrollbar.config(command=listbox.yview)
+    for p in xml_paths:
+        listbox.insert(tk.END, os.path.basename(p))
+    if not xml_paths:
+        listbox.insert(tk.END, "  （09_validation 下暂无 XML 文件）")
     def on_double_click(event):
         sel = listbox.curselection()
         if not sel or not xml_paths:
@@ -218,8 +261,8 @@ def run_batch_run(gui):
 
     dlg = tk.Toplevel(gui.root)
     dlg.title("Batch Run")
-    dlg.geometry("1400x500")  # 宽度比原 1350 增加 50
-    dlg.resizable(True, False)
+    dlg.geometry("1500x680")  # 高度 680 以容纳四步内容
+    dlg.resizable(True, True)
     dlg.transient(gui.root)
     dlg.grab_set()
     dlg.configure(bg="#f0f0f0")
@@ -287,7 +330,7 @@ def run_batch_run(gui):
             if not generated:
                 messagebox.showwarning("提示", "未在 92 程序中找到包含 %batch_script_generator 的行，或 out= 解析失败。")
                 return
-            gui.update_status("已生成 %d 个初版 Batch Run 脚本，正在批量运行（Linux 路径，不检查日志）…" % len(generated))
+            gui.update_status("已生成 %d 个初版 Batch Run 脚本，正在批量运行…" % len(generated))
             # 第三步：批量运行。%batch_script_generator 会强制终止 SAS 进程，遇此情况不弹窗，新建会话后继续下一个
             sas = saspy.SASsession(cfgname='winiomlinux')
             try:
@@ -304,7 +347,7 @@ def run_batch_run(gui):
                             except Exception:
                                 pass
                             sas = saspy.SASsession(cfgname='winiomlinux')
-                            gui.update_status("已运行 %s（SAS 进程已由宏终止），继续下一个…" % os.path.basename(sas_path))
+                            gui.update_status("已运行 %s，继续下一个…" % os.path.basename(sas_path))
                         else:
                             gui.update_status("Batch Run 执行出错：%s" % e)
                             messagebox.showerror("错误", "运行 %s 时出错：%s" % (os.path.basename(sas_path), e))
@@ -367,61 +410,106 @@ def run_batch_run(gui):
             entry_batch_script.delete(0, tk.END)
             entry_batch_script.insert(0, path)
 
-    tk.Button(row_batch_script, text="浏览...", command=browse_batch_script, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+    tk.Button(row_batch_script, text="浏览...", command=browse_batch_script, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
 
     def run_batch_script():
-        """点击「运行」：用 run_batch_script_from_python 解析 batch 脚本，base_path 默认为脚本所在目录的上两级，再用 linux_sas_call_from_python 依次执行解析出的 SAS 程序。"""
+        """点击「运行」：用 linux_sas_call_from_python 运行浏览框中的 SAS 程序；忽略 %batch_wrap_up 导致的 SAS 进程退出；完成后根据同路径下 .log 是否含 [FAILED] 弹窗并可选查看日志。"""
         batch_script_path = entry_batch_script.get().strip()
         if not batch_script_path or not os.path.isfile(batch_script_path):
             messagebox.showwarning("提示", "请先选择有效的 Batch Run 脚本。")
             return
-        # base_path 默认：Batch Run 脚本路径的上两级文件夹（如 .../utility/tools/xx.sas -> .../csr_01）
-        base_path = os.path.normpath(os.path.join(os.path.dirname(batch_script_path), "..", ".."))
         try:
-            from run_batch_script_from_python import parse_batch_submits, build_sas_paths
             from linux_sas_call_from_python import run_sas
-            import saspy
         except ImportError as e:
-            messagebox.showerror("错误", "无法导入 run_batch_script_from_python 或 linux_sas_call_from_python。\n\n%s" % e)
+            messagebox.showerror("错误", "无法导入 linux_sas_call_from_python。\n\n%s" % e)
             return
-        submits = parse_batch_submits(batch_script_path)
-        if not submits:
-            messagebox.showwarning("提示", "未在批处理脚本中找到任何 %batch_submit(role=..., target=..., pgm=...)。")
-            return
-        try:
-            sas_paths = build_sas_paths(base_path, submits)
-        except ValueError as e:
-            messagebox.showerror("错误", "解析 batch_submit 失败：%s" % e)
-            return
-        gui.update_status("已解析 %d 个 SAS 程序，正在批量运行…" % len(sas_paths))
+        gui.update_status("正在运行 Batch Run 脚本：%s" % os.path.basename(batch_script_path))
         dlg.update_idletasks()
-        sas = saspy.SASsession(cfgname='winiomlinux')
         try:
-            for i, sas_path in enumerate(sas_paths, 1):
-                gui.update_status("[%d/%d] 执行: %s" % (i, len(sas_paths), os.path.basename(sas_path)))
-                dlg.update_idletasks()
+            run_sas(batch_script_path, check_log=False)
+        except Exception as e:
+            err_msg = str(e)
+            if "SAS process has terminated unexpectedly" not in err_msg and "terminated unexpectedly" not in err_msg:
+                gui.update_status("Batch Run 执行出错：%s" % e)
+                messagebox.showerror("错误", "运行 Batch Run 脚本时出错：%s" % e)
+                return
+            # 忽略 %batch_wrap_up 导致的进程退出，继续检查日志
+        log_path = os.path.join(
+            os.path.dirname(batch_script_path),
+            os.path.splitext(os.path.basename(batch_script_path))[0] + ".log",
+        )
+        if not os.path.isfile(log_path):
+            gui.update_status("Batch Run 已完成，但未找到日志文件。")
+            messagebox.showinfo("完成", "Batch Run 已完成。未找到日志文件。")
+            return
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                log_content = f.read()
+        except Exception as e:
+            messagebox.showerror("错误", "读取日志文件失败：%s" % e)
+            return
+        has_issues = "[FAILED]" in log_content or "WARNINGS" in log_content
+        if has_issues:
+            failed_lines = [
+                line.rstrip() for line in log_content.splitlines()
+                if "[FAILED]" in line or "WARNINGS" in line
+            ]
+            win_fail = tk.Toplevel(dlg)
+            win_fail.title("完成")
+            win_fail.configure(bg="#f0f0f0")
+            win_fail.transient(dlg)
+            win_fail.grab_set()
+            n = len(failed_lines)
+            tk.Label(
+                win_fail,
+                text="共 %d 个程序运行失败或存在WARNINGS，如下：" % n,
+                font=("Microsoft YaHei UI", 10, "bold"),
+                fg="#333333",
+                bg="#f0f0f0",
+            ).pack(anchor="w", padx=12, pady=(12, 6))
+            txt = scrolledtext.ScrolledText(
+                win_fail, height=min(12, max(4, n)), width=160,
+                font=("Consolas", 9), wrap=tk.WORD,
+            )
+            txt.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 6))
+            for line in failed_lines:
+                txt.insert(tk.END, line + "\n")
+            txt.config(state=tk.DISABLED)
+            tk.Label(
+                win_fail,
+                text="是否查看日志文件？",
+                font=("Microsoft YaHei UI", 9),
+                fg="#333333",
+                bg="#f0f0f0",
+            ).pack(anchor="w", padx=12, pady=(6, 4))
+            btn_frame = tk.Frame(win_fail, bg="#f0f0f0")
+            btn_frame.pack(anchor="w", padx=12, pady=(0, 12))
+
+            def open_log_and_close():
                 try:
-                    run_sas(sas_path, sas_session=sas, check_log=False)
-                except Exception as e:
-                    err_msg = str(e)
-                    if "terminated unexpectedly" in err_msg or "No SAS process attached" in err_msg:
-                        try:
-                            sas.endsas()
-                        except Exception:
-                            pass
-                        sas = saspy.SASsession(cfgname='winiomlinux')
-                        gui.update_status("已运行 %s（SAS 进程已由宏终止），继续下一个…" % os.path.basename(sas_path))
-                    else:
-                        gui.update_status("Batch Run 执行出错：%s" % e)
-                        messagebox.showerror("错误", "运行 %s 时出错：%s" % (os.path.basename(sas_path), e))
-                        return
-        finally:
-            try:
-                sas.endsas()
-            except Exception:
-                pass
-        gui.update_status("Batch Run 已全部执行完成（共 %d 个程序）。" % len(sas_paths))
-        messagebox.showinfo("完成", "恭喜您，Batch Run 已全部执行完成（共 %d 个程序）。" % len(sas_paths))
+                    subprocess.Popen(["notepad", log_path], shell=True)
+                except Exception:
+                    try:
+                        os.startfile(log_path)
+                    except Exception:
+                        pass
+                win_fail.destroy()
+
+            tk.Button(btn_frame, text="是", width=8, font=("Microsoft YaHei UI", 9), command=open_log_and_close).pack(side=tk.LEFT, padx=(0, 8))
+            tk.Button(btn_frame, text="否", width=8, font=("Microsoft YaHei UI", 9), command=win_fail.destroy).pack(side=tk.LEFT)
+            win_fail.focus_set()
+            # 固定宽度 1400、高度按行数，便于完整展示每行 FAILED 日志
+            win_fail.geometry("1400x500")
+        else:
+            if messagebox.askyesno("完成", "恭喜您，Batch Run完成。是否查看日志文件？"):
+                try:
+                    subprocess.Popen(["notepad", log_path], shell=True)
+                except Exception:
+                    try:
+                        os.startfile(log_path)
+                    except Exception:
+                        pass
+        gui.update_status("Batch Run 已完成。")
 
     def edit_batch_script():
         """点击「编辑」：打开选中的 Batch Run 脚本。"""
@@ -435,10 +523,11 @@ def run_batch_run(gui):
         else:
             messagebox.showwarning("提示", "文件不存在：%s" % path)
 
+    tk.Button(row_batch_script, text="编辑", command=edit_batch_script, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+
     btn_row2 = tk.Frame(main, bg="#f0f0f0")
     btn_row2.pack(anchor="w", pady=(4, 0))
-    tk.Button(btn_row2, text="运行", command=run_batch_script, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 8))
-    tk.Button(btn_row2, text="编辑", command=edit_batch_script, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+    tk.Button(btn_row2, text="运行", command=run_batch_script, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
 
     # ---------- 第三步 ----------
     default_log_check_sas = os.path.join(base_path, "utility", "tools", "93_log_check_call.sas")
@@ -468,7 +557,7 @@ def run_batch_run(gui):
             entry_log_check.delete(0, tk.END)
             entry_log_check.insert(0, path)
 
-    tk.Button(row_log_check, text="浏览...", command=browse_log_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+    tk.Button(row_log_check, text="浏览...", command=browse_log_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
 
     def run_log_check():
         """点击「运行」：读取 Log Check 脚本，识别每个 %log_chk 为单独 SAS 宏，用 linux_sas_call_from_python 依次运行。"""
@@ -519,7 +608,7 @@ run;
                         except Exception:
                             pass
                         sas = saspy.SASsession(cfgname='winiomlinux')
-                        gui.update_status("已运行 %s（SAS 进程已由宏终止），继续下一个…" % os.path.basename(sas_path))
+                        gui.update_status("已运行 %s，继续下一个…" % os.path.basename(sas_path))
                     else:
                         gui.update_status("Log Check 执行出错：%s" % e)
                         messagebox.showerror("错误", "运行 %s 时出错：%s" % (os.path.basename(sas_path), e))
@@ -541,8 +630,8 @@ run;
                         os.remove(log_path)
                 except Exception:
                     pass
-        gui.update_status("Log Check 已全部执行完成（共 %d 个 %%log_chk）。" % len(log_chk_calls))
-        messagebox.showinfo("完成", "恭喜您，Log Check 已全部执行完成。" % len(log_chk_calls))
+        gui.update_status("Log Check 已全部执行完成。")
+        messagebox.showinfo("完成", "恭喜您，Log Check 已全部执行完成。")
         _show_log_check_xml_list(dlg, base_path, gui)
 
     def edit_log_check():
@@ -557,10 +646,82 @@ run;
         else:
             messagebox.showwarning("提示", "文件不存在：%s" % path)
 
+    tk.Button(row_log_check, text="编辑", command=edit_log_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+
     btn_row3 = tk.Frame(main, bg="#f0f0f0")
     btn_row3.pack(anchor="w", pady=(4, 0))
-    tk.Button(btn_row3, text="运行", command=run_log_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 8))
-    tk.Button(btn_row3, text="编辑", command=edit_log_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+    tk.Button(btn_row3, text="运行", command=run_log_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+
+    # ---------- 第四步 ----------
+    default_compare_check_sas = os.path.join(base_path, "utility", "tools", "94_compare_check_call.sas")
+    step4_title = tk.Label(
+        main,
+        text="第四步：请选择 Compare Check 脚本",
+        font=("Microsoft YaHei UI", 10, "bold"),
+        fg="#333333",
+        bg="#f0f0f0"
+    )
+    step4_title.pack(anchor="w", pady=(14, 10))
+
+    row_compare_check = tk.Frame(main, bg="#f0f0f0")
+    row_compare_check.pack(anchor="w", fill=tk.X, pady=(0, 6))
+    tk.Label(row_compare_check, text="Compare Check 脚本：", font=("Microsoft YaHei UI", 9), width=32, anchor="w", bg="#f0f0f0").pack(side=tk.LEFT, padx=(0, 4))
+    entry_compare_check = tk.Entry(row_compare_check, width=72, font=("Microsoft YaHei UI", 9))
+    entry_compare_check.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+    entry_compare_check.insert(0, default_compare_check_sas)
+
+    def browse_compare_check():
+        path = filedialog.askopenfilename(
+            title="选择 Compare Check 脚本",
+            filetypes=[("SAS", "*.sas"), ("All", "*.*")],
+            initialdir=tools_dir if os.path.isdir(tools_dir) else base_path
+        )
+        if path:
+            entry_compare_check.delete(0, tk.END)
+            entry_compare_check.insert(0, path)
+
+    tk.Button(row_compare_check, text="浏览...", command=browse_compare_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+
+    def run_compare_check():
+        """点击「运行」：用 linux_sas_call_from_python 运行浏览框中的 Compare Check 脚本。"""
+        path = entry_compare_check.get().strip()
+        if not path or not os.path.isfile(path):
+            messagebox.showwarning("提示", "请先选择有效的 Compare Check 脚本。")
+            return
+        try:
+            from linux_sas_call_from_python import run_sas
+        except ImportError as e:
+            messagebox.showerror("错误", "无法导入 linux_sas_call_from_python。\n\n%s" % e)
+            return
+        gui.update_status("正在运行 Compare Check 脚本：%s" % os.path.basename(path))
+        dlg.update_idletasks()
+        try:
+            run_sas(path, check_log=False)
+        except Exception as e:
+            gui.update_status("Compare Check 执行出错：%s" % e)
+            messagebox.showerror("错误", "运行 Compare Check 脚本时出错：%s" % e)
+            return
+        gui.update_status("Compare Check 已执行完成。")
+        messagebox.showinfo("完成", "恭喜您，Compare Check 已执行完成。")
+        _show_compare_check_xml_list(dlg, base_path, gui)
+
+    def edit_compare_check():
+        """点击「编辑」：打开选中的 Compare Check 脚本。"""
+        path = entry_compare_check.get().strip()
+        if not path:
+            messagebox.showwarning("提示", "请先选择 Compare Check 脚本。")
+            return
+        if os.path.isfile(path):
+            os.startfile(path)
+            gui.update_status("已打开: %s" % os.path.basename(path))
+        else:
+            messagebox.showwarning("提示", "文件不存在：%s" % path)
+
+    tk.Button(row_compare_check, text="编辑", command=edit_compare_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+
+    btn_row4 = tk.Frame(main, bg="#f0f0f0")
+    btn_row4.pack(anchor="w", pady=(4, 0))
+    tk.Button(btn_row4, text="运行", command=run_compare_check, width=8, font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
 
     dlg.focus_set()
     entry_sas92.focus_set()
