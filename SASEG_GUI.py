@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pywinauto.application import Application
 from tfls_pdt import show_pdt_dialog
+from sap_toc import show_sap_toc_dialog
 from tfls_metadata import show_metadata_setup_dialog
 from tfls_init_pgm import run_initial_pgm
 from tfls_batch_run import run_batch_run
@@ -134,7 +135,7 @@ class SASEGGUI:
         content_row = tk.Frame(self.root)
         content_row.pack(fill=tk.BOTH, expand=True)
         
-        # ========== 左侧导航栏（仿 Dizal 风格）：浅灰背景 + 文字菜单 + 当前项左侧蓝条 ==========
+        # ========== 左侧导航栏：浅灰背景 + 文字菜单 + 当前项左侧蓝条 ==========
         SIDEBAR_BG = "#e5e5e5"
         SIDEBAR_SEL_BG = "#d5d5d5"
         SIDEBAR_LEFT_BAR = "#5B9BD5"
@@ -143,7 +144,7 @@ class SASEGGUI:
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
         self.sidebar.pack_propagate(False)
         
-        self.page_names = ["主页", "aCRF", "SDTM", "ADaM", "TFLs", "M5", "pm"]
+        self.page_names = ["主页", "aCRF", "SDTM", "SAP", "ADaM", "TFLs", "M5", "pm"]
         self.sidebar_items = []  # [(frame, left_bar, text_lbl, page_id), ...]
         self.current_page = "主页"
         
@@ -190,7 +191,7 @@ class SASEGGUI:
             return (frame, left_bar, text_lbl, page_id)
         
         self.sidebar_items.append(make_sidebar_item(self.sidebar, "Home", "主页"))
-        for name in ["aCRF", "SDTM", "ADaM", "TFLs", "M5", "pm"]:
+        for name in ["aCRF", "SDTM", "SAP", "ADaM", "TFLs", "M5", "pm"]:
             self.sidebar_items.append(make_sidebar_item(self.sidebar, name, name))
         
         def update_sidebar_style():
@@ -262,6 +263,7 @@ class SASEGGUI:
         self.quick_jump_map = [
             ("aCRF", "04_crt"),
             ("SDTM", "01_sdtm"),
+            ("SAP", "07_sap"),
             ("ADaM", "02_adam"),
             ("TFLs", "03_reports"),
             ("M5", "05_pkpd"),
@@ -362,9 +364,27 @@ class SASEGGUI:
         
         # ----- 6 个独立页面（占位，可后续扩展内容） -----
         self.page_frames = {}
-        for page_id in ["aCRF", "SDTM", "ADaM", "TFLs", "M5", "pm"]:
+        for page_id in ["aCRF", "SDTM", "SAP", "ADaM", "TFLs", "M5", "pm"]:
             f = tk.Frame(self.main_container, bg="#f5f5f5")
-            if page_id == "TFLs":
+            if page_id == "SAP":
+                btn_row = tk.Frame(f, bg="#f5f5f5")
+                btn_row.pack(anchor="w", padx=16, pady=16)
+                btn_width = 10
+                btn_toc_gen = tk.Button(
+                    btn_row,
+                    text="TOC\nGen",
+                    command=lambda: show_sap_toc_dialog(self),
+                    width=btn_width,
+                    font=("Microsoft YaHei UI", 10, "bold"),
+                    bg="#205572",
+                    fg="white",
+                    relief=tk.FLAT,
+                    cursor="hand2",
+                    padx=10,
+                    pady=6
+                )
+                btn_toc_gen.pack(side=tk.LEFT)
+            elif page_id == "TFLs":
                 btn_row = tk.Frame(f, bg="#f5f5f5")
                 btn_row.pack(anchor="w", padx=16, pady=16)
                 btn_width = 10  # 两按钮列宽相同且较窄，文字各两行显示
@@ -653,7 +673,7 @@ class SASEGGUI:
         self.update_status(f"已跳转至 {self.current_subfolders[col_idx]}")
     
     def _switch_page(self, page_id):
-        """切换左侧导航对应的页面（主页 / aCRF / SDTM / ADaM / TFLs / M5 / pm）"""
+        """切换左侧导航对应的页面（主页 / aCRF / SDTM / SAP / ADaM / TFLs / M5 / pm）"""
         self.current_page = page_id
         # 隐藏所有内容页
         self.home_page_frame.pack_forget()
