@@ -257,7 +257,7 @@ def _backup_existing_to_archive(file_path):
     return backup_path
 
 
-def write_analysis_set_xlsx(xlsx_path, rows):
+def write_tadsl_pop_xlsx(xlsx_path, rows):
     """
     将 (小段标题, 内容) 列表写入 Excel，与完整表格一致：TEXT、ROW、MASK、LINE_BREAK、INDENT、FILTER、FOOTNOTE。
     rows: list of (小段标题, 内容)
@@ -303,7 +303,7 @@ def run_analysis_set_init(sap_docx_path, output_xlsx_path, backup=True):
         rows = parse_analysis_set_from_docx(sap_docx_path)
         if not rows:
             return False, "未在「分析集」章节下解析到任何小段标题与内容。请确认文档中该章节内的小段标题为「小黑点」列表项（项目符号）。"
-        write_analysis_set_xlsx(output_xlsx_path, rows)
+        write_tadsl_pop_xlsx(output_xlsx_path, rows)
         logger.info("已初始化 t14_1-1_2.xlsx：%s（共 %d 条）", output_xlsx_path, len(rows))
         return True, len(rows)
     except Exception as e:
@@ -321,7 +321,7 @@ if __name__ == "__main__":
     #PATH_SAP_DOCX = r".\SHR-1905-202 统计分析计划-V1.1.docx"
     #PATH_T14_1_1_2 = r".\t14_1-1_2-1905202.xlsx"
     PATH_SAP_DOCX = r"SHR-1703-301SAP V0.3-202601.docx"
-    PATH_T14_1_1_2 = r".\t14_1-1_2-1703301.xlsx"
+    PATH_T14_1_1_2 = r".\t14_1-1_2.xlsx"
     #PATH_SAP_DOCX = r".\HRS-9231-302 统计分析计划.docx"
     #PATH_T14_1_1_2 = r".\t14_1-1_2-9231302.xlsx"
 

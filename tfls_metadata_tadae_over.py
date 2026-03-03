@@ -4,7 +4,7 @@
 
 从 edcdef_code.sas7bdat 解析 AE 码表（AESEV/AETOXGR、AEACN）及 EDC 变量存在性（AEDIS、AESI），
 输入：PATH_T14_3_1_1_1（输出 xlsx）、PATH_EDCDEF_CODE（edcdef_code.sas7bdat 或 .xlsx）。
-依赖：pandas, openpyxl, pyreadstat（读 sas7bdat）。可直接运行或调用 run_t14_3_1_1_1_init(path_t14, path_edc_code)。
+依赖：pandas, openpyxl, pyreadstat（读 sas7bdat）。可直接运行或调用 run_tadae_over_init(path_t14, path_edc_code)。
 """
 import logging
 import os
@@ -53,9 +53,9 @@ _ROW2_FILTER_TEMPLATE = 'trtemfl="Y" and aesev = [AESEV]'
 _ROW4_FILTER_TEMPLATE = 'traefl ="Y" and aesev = [AESEV]'
 # 第 5、6 行 TEXT/FILTER 模板（占位符 [AEACN] 替换为实际 CODE_LABEL）
 _ROW5_TEXT_TEMPLATE = "导致[AEACN]的TEAE"
-_ROW5_FILTER_TEMPLATE = 'trtemfl="Y" and aeacn = [AEACN]'
+_ROW5_FILTER_TEMPLATE = 'trtemfl="Y" and prxmatch("/[AEACN]/", catx("|", of aeacn:))'
 _ROW6_TEXT_TEMPLATE = "导致[AEACN]的TRAE"
-_ROW6_FILTER_TEMPLATE = 'traefl ="Y" and aeacn = [AEACN]'
+_ROW6_FILTER_TEMPLATE = 'traefl ="Y" and prxmatch("/[AEACN]/", catx("|", of aeacn:))'
 
 # 除第 2、4、5、6 行外，其他行直接赋值（ROW 列由程序按顺序生成）。INDENT 为整型，无缩进为 None。
 _FIXED_ROWS = (
@@ -252,9 +252,8 @@ def build_t14_3_1_1_1_rows(ae_data):
         })
         row_num += 1
 
-    # 第 5、6 行：按 AEACN 扩展，同一 AEACN 先输出「导致[AEACN]的TEAE」再输出「导致[AEACN]的TRAE」
+    # 第 5、6 行：按 AEACN 扩展，同一 AEACN 先输出「导致[AEACN]的TEAE」再输出「导致[AEACN]的TRAE」；FILTER 用 prxmatch，占位符替换为标签原文
     for label in aeacn_values:
-        q = _quoted_sas_value(label)
         lbl = label or ""
         rows.append({
             **defaults,
@@ -263,7 +262,7 @@ def build_t14_3_1_1_1_rows(ae_data):
             "MASK": "",
             "LINE_BREAK": "",
             "INDENT": None,
-            "FILTER": _ROW5_FILTER_TEMPLATE.replace(_PLACEHOLDER_AEACN, q),
+            "FILTER": _ROW5_FILTER_TEMPLATE.replace(_PLACEHOLDER_AEACN, lbl),
         })
         row_num += 1
         rows.append({
@@ -273,7 +272,7 @@ def build_t14_3_1_1_1_rows(ae_data):
             "MASK": "",
             "LINE_BREAK": "",
             "INDENT": None,
-            "FILTER": _ROW6_FILTER_TEMPLATE.replace(_PLACEHOLDER_AEACN, q),
+            "FILTER": _ROW6_FILTER_TEMPLATE.replace(_PLACEHOLDER_AEACN, lbl),
         })
         row_num += 1
 
@@ -293,7 +292,7 @@ def _cell_display_width(val):
     return sum(2 if "\u4e00" <= c <= "\u9fff" else 1 for c in s)
 
 
-def write_t14_3_1_1_1_xlsx(xlsx_path, rows):
+def write_tadae_over_xlsx(xlsx_path, rows):
     """将 t14_3_1-1_1 行写入 Excel，表头：ROW, TEXT, MASK, LINE_BREAK, INDENT, FILTER。INDENT 列为整数型，列宽按内容调整。"""
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
@@ -341,7 +340,7 @@ def _backup_existing_to_archive(file_path):
     return backup_path
 
 
-def run_t14_3_1_1_1_init(path_t14, path_edc_code):
+def run_tadae_over_init(path_t14, path_edc_code):
     """
     生成 t14_3_1-1_1.xlsx。若文件已存在则备份后覆盖。
     path_t14: 输出 xlsx 路径
@@ -372,14 +371,14 @@ def run_t14_3_1_1_1_init(path_t14, path_edc_code):
     if d:
         os.makedirs(d, exist_ok=True)
     rows = build_t14_3_1_1_1_rows(ae_data)
-    write_t14_3_1_1_1_xlsx(path_t14, rows)
+    write_tadae_over_xlsx(path_t14, rows)
     logger.info("已初始化 t14_3_1-1_1.xlsx（共 %d 行）：%s", len(rows), path_t14)
     return path_t14
 
 
 if __name__ == "__main__":
     PATH_T14_3_1_1_1 = r".\t14_3_1-1_1.xlsx"
-    PATH_EDCDEF_CODE = r".\edcdef_code.sas7bdat"
+    PATH_EDCDEF_CODE = r".\HRS2129_101\edcdef_code.sas7bdat"
 
     if len(sys.argv) >= 3:
         path_t14 = sys.argv[1]
@@ -391,5 +390,5 @@ if __name__ == "__main__":
         print("请设置宏参数 PATH_T14_3_1_1_1、PATH_EDCDEF_CODE，或使用：")
         print(" python tfls_metadata_tadae_over.py <t14_3_1-1_1.xlsx路径> <edcdef_code路径>")
         sys.exit(1)
-    run_t14_3_1_1_1_init(path_t14, path_edc)
+    run_tadae_over_init(path_t14, path_edc)
     print("不良事件汇总表 metadata t14_3_1-1_1.xlsx 已生成，文件路径为：", path_t14)
