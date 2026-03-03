@@ -3,42 +3,24 @@
 生成受试者分布metadata t14_1-1_1.xlsx。
 
 按 Meta_Data 表格制作流程生成 01/04/05/06 四部分。
-输入方式：三个输入宏参数，用户调用时在下方设置路径，或通过命令行传入。
-无 GUI；05_trt 簇数始终由 PATH_EDCDEF_CASEBOOK 解析。可直接运行本脚本或作为模块调用 run_t14_init(path_t14, path_adam, path_edc, path_edc_casebook)。
+输入方式：输入宏参数，用户调用时在下方设置路径，或通过命令行传入。
+05_trt 簇数始终由 PATH_EDCDEF_CASEBOOK 解析。可直接运行本脚本或作为模块调用 run_tadsl_disp_init(path_t141_11, path_adam_spec, path_edc_code, path_edc_casebook)。
 """
-import logging
-import os
-import shutil
-import sys
-from datetime import datetime
 
-logger = logging.getLogger(__name__)
+print(">>>>>>>>>>>>>生成受试者分布metadata t14_1-1_1.xlsx>>>>>>>>>>>>>")
+
+import os
+import sys
+import warnings
+
+# 抑制 openpyxl 读取含页眉/页脚的 xlsx 时的解析警告（如 ADaM PDS）
+warnings.filterwarnings("ignore", message="Cannot parse header or footer so it will be ignored")
 
 # ---------- 输入宏参数：用户调用时设置以下路径（或通过命令行参数传入） ----------
 PATH_T14_1_1_1 = ""   # t14_1-1_1.xlsx 输出路径
 PATH_ADAM_SPEC = ""   # ADaM PDS
 PATH_EDCDEF_CODE = "" # EDCDEF_code（.sas7bdat 或 .xlsx）
 PATH_EDCDEF_CASEBOOK = ""  # edcdef_casebook.sas7bdat（用户必填）。05_trt 簇数始终由此解析：EDC_DATA 以 DSEOT 开头的观测数，EDC_FORM 取「结束页」前作为 base
-
-
-def _setup_log_file():
-    """将本模块日志同时输出到本地文件（logs/tfls_metadata_tadsl_disp.log），仅添加一次。"""
-    if any(isinstance(h, logging.FileHandler) for h in logger.handlers):
-        return
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, "tfls_metadata_tadsl_disp.log")
-        fh = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
-        logger.addHandler(fh)
-        logger.setLevel(logging.DEBUG)
-    except Exception as e:
-        logger.debug("无法创建日志文件 %s: %s", log_dir, e)
-
-
-_setup_log_file()
 
 
 # ---------- T14_1-1_1 受试者分布数据解析与生成 ----------
@@ -72,6 +54,11 @@ _T14_05_PREFIX_COMPLETE = "完成"
 _T14_05_PREFIX_TERMINATE = "终止"
 _T14_05_FILTER_VALUE_COMPLETE = "完成治疗"   # 完成治疗行 FILTER 中变量取值
 _T14_05_FILTER_VALUE_TERMINATE = "终止治疗"  # 终止治疗行及终止治疗原因行 FILTER 中变量取值
+# 05_trt 仅一簇时：完成/终止行固定为「完成研究治疗」「终止研究治疗」，FILTER 固定用 EOTSTT
+_T14_05_SINGLE_CLUSTER_ROW1_TEXT = "完成研究治疗"
+_T14_05_SINGLE_CLUSTER_ROW1_FILTER = "saffl='Y' and EOTSTT='完成治疗'"
+_T14_05_SINGLE_CLUSTER_ROW2_TEXT = "终止研究治疗"
+_T14_05_SINGLE_CLUSTER_ROW2_FILTER = "saffl='Y' and EOTSTT='终止治疗'"
 _T14_05_DEFAULT_LABEL = "治疗结束状态"
 _T14_05_EXCLUDE_REASONS = ("已完成",)
 
@@ -117,8 +104,7 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
     从 ADaM PDS 的 variables sheet 中判断 ADSL 是否存在 RANDFL/ENRLFL （StudySpecific Flag为Y为前提筛选条件）。
     返回: tuple of "randfl" 和/或 "enrlfl"；均不存在时返回 ("randfl",) 作为默认。
     """
-    _setup_log_file()
-    logger.info("[RANDFL/ENRLFL] 开始解析 ADaM 说明文件：%s", adam_excel_path)
+
     try:
         import pandas as pd
     except ImportError:
@@ -134,10 +120,9 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
             sheet_name = s
             break
     if sheet_name is None:
-        logger.warning("[RANDFL/ENRLFL] 未找到 variables 相关 sheet，sheet 列表：%s", xl.sheet_names)
+        print("RANDFL/ENRLFL exists in ADSL？未找到 variables 相关 sheet，sheet 列表：", xl.sheet_names)
         raise ValueError("ADaM 说明文件中未找到 variables 相关 sheet。")
 
-    logger.info("[RANDFL/ENRLFL] 使用 sheet：%s", sheet_name)
     df = pd.read_excel(adam_excel_path, sheet_name=sheet_name, header=0)
     if df.empty:
         raise ValueError("variables sheet 为空。")
@@ -145,8 +130,6 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
     col_dataset = _find_excel_column(df, ("Dataset", "Data Set", "数据集", "Dataset Name"))
     col_var = _find_excel_column(df, ("Variable", "变量", "Variable Name"))
     col_study_specific = _find_excel_column(df, ("Study Specific", "StudySpecific", "Study Specific Flag"))
-    logger.info("[RANDFL/ENRLFL] 列名映射：Dataset=%s, Variable=%s, Study Specific=%s",
-                col_dataset, col_var, col_study_specific)
 
     if col_dataset is None or col_var is None:
         raise ValueError("variables sheet 中未找到 Dataset 或 Variable 列。")
@@ -156,7 +139,7 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
     adsl_df = df.loc[adsl_mask]
 
     if adsl_df.empty:
-        logger.warning("[RANDFL/ENRLFL] 无 ADSL 行，返回默认 ('randfl',)")
+        print("[RANDFL/ENRLFL] 无 ADSL 行，返回默认 ('randfl',)")
         return ("randfl",)
 
     var_col = adsl_df[col_var].astype(str).str.strip()
@@ -181,7 +164,7 @@ def parse_adam_spec_for_randfl_enrlfl(adam_excel_path):
             out.append("enrlfl")
 
     result = tuple(out) if out else ("randfl",)
-    logger.info("[RANDFL/ENRLFL] 解析结果：%s", result)
+    print("RANDFL/ENRLFL exists in ADSL？ 解析结果：", result)
     return result
 
 
@@ -343,25 +326,25 @@ def read_edcdef_casebook(casebook_path):
         return []
     ext = os.path.splitext(casebook_path)[1].lower()
     if ext != ".sas7bdat":
-        logger.warning("Casebook 仅支持 .sas7bdat，当前：%s", casebook_path)
+        print("Casebook 仅支持 .sas7bdat，当前：", casebook_path)
         return []
     try:
         import pandas as pd
         import pyreadstat
     except ImportError as e:
-        logger.warning("读取 Casebook 需要 pyreadstat：%s", e)
+        print("读取 Casebook 需要 pyreadstat：", e)
         return []
     try:
         df, _ = pyreadstat.read_sas7bdat(casebook_path)
     except Exception as e:
-        logger.warning("无法读取 Casebook %s：%s", casebook_path, e)
+        print("无法读取 Casebook %s：%s" % (casebook_path, e))
         return []
     if df is None or df.empty:
         return []
     col_data = _find_excel_column(df, ("EDC_DATA", "Edc_Data", "edc_data"))
     col_form = _find_excel_column(df, ("EDC_FORM", "Edc_Form", "edc_form"))
     if col_data is None or col_form is None:
-        logger.warning("Casebook 中未找到 EDC_DATA 或 EDC_FORM 列")
+        print("Casebook 中未找到 EDC_DATA 或 EDC_FORM 列")
         return []
     out = []
     truncate_at = _CASEBOOK_EDC_FORM_TRUNCATE_AT
@@ -492,19 +475,25 @@ def build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, scr
             })
 
     em_05 = {"SEC": _T14_05_SEC, "TRT_I": "", "DSNIN": _T14_01_DSNIN, "TRTSUBN": _T14_01_TRTSUBN, "TRTSUBC": _T14_01_TRTSUBC}
-    for base, var_eotstt in (otr_clusters or []):
+    otr_list = otr_clusters or []
+    for idx, (base, var_eotstt) in enumerate(otr_list):
         var_eotstt = (var_eotstt or "").strip() or _T14_05_VAR_EOTSTT
         # DCTREAS 与 EOTSTT 使用相同序号后缀：EOTSTT→dctreas，EOTSTT1→dctreas1，EOTSTT2→dctreas2
         var_upper = var_eotstt.upper()
         suffix = var_upper[6:] if var_upper.startswith("EOTSTT") else ""
         dctreas_var = "dctreas" + suffix
-        # TEXT：「完成」/「终止」+ EDC_FORM（base 已为「结束页」前文本）
-        row1_text = _T14_05_PREFIX_COMPLETE + (base or _T14_05_BASE_KEEP)
-        row2_text = _T14_05_PREFIX_TERMINATE + (base or _T14_05_BASE_KEEP)
+        single_cluster = len(otr_list) == 1
+        if single_cluster:
+            row1_text = _T14_05_SINGLE_CLUSTER_ROW1_TEXT
+            row2_text = _T14_05_SINGLE_CLUSTER_ROW2_TEXT
+            filter_row1 = _T14_05_SINGLE_CLUSTER_ROW1_FILTER
+            filter_row2 = _T14_05_SINGLE_CLUSTER_ROW2_FILTER
+        else:
+            row1_text = _T14_05_PREFIX_COMPLETE + (base or _T14_05_BASE_KEEP)
+            row2_text = _T14_05_PREFIX_TERMINATE + (base or _T14_05_BASE_KEEP)
+            filter_row1 = "saffl='Y' and %s='%s'" % (var_eotstt, _T14_05_FILTER_VALUE_COMPLETE)
+            filter_row2 = "saffl='Y' and %s='%s'" % (var_eotstt, _T14_05_FILTER_VALUE_TERMINATE)
         row3_text = _T14_05_PREFIX_TERMINATE + (base or _T14_05_BASE_KEEP) + "原因"
-        # FILTER：完成治疗行取值「完成治疗」，终止治疗行及原因行取值「终止治疗」
-        filter_row1 = "saffl='Y' and %s='%s'" % (var_eotstt, _T14_05_FILTER_VALUE_COMPLETE)
-        filter_row2 = "saffl='Y' and %s='%s'" % (var_eotstt, _T14_05_FILTER_VALUE_TERMINATE)
         row_num += 1
         rows.append({"TEXT": row1_text, "MASK": "", "LINE_BREAK": "1", "INDENT": "", **em_05, "FILTER": filter_row1})
         row_num += 1
@@ -545,7 +534,7 @@ _T14_1_1_1_COLUMNS = (
 )
 
 
-def write_t14_1_1_1_xlsx(xlsx_path, rows):
+def write_tadsl_disp_xlsx(xlsx_path, rows):
     """将受试者分布行写入 Excel。"""
     from openpyxl import Workbook
     wb = Workbook()
@@ -562,51 +551,33 @@ def write_t14_1_1_1_xlsx(xlsx_path, rows):
     wb.save(xlsx_path)
 
 
-def _backup_existing_to_archive(file_path):
-    """若 file_path 存在，则复制到同目录下的 99_archive 文件夹，文件名加年月日时分秒后缀。返回备份路径或 None。"""
-    if not file_path or not os.path.isfile(file_path):
-        return None
-    dir_name = os.path.dirname(file_path)
-    base_name = os.path.basename(file_path)
-    name, ext = os.path.splitext(base_name)
-    suffix = datetime.now().strftime("%Y%m%d%H%M%S")
-    archive_dir = os.path.join(dir_name, "99_archive")
-    os.makedirs(archive_dir, exist_ok=True)
-    backup_name = "%s_%s%s" % (name, suffix, ext)
-    backup_path = os.path.join(archive_dir, backup_name)
-    shutil.copy2(file_path, backup_path)
-    return backup_path
-
-
-def run_t14_init(path_t14, path_adam, path_edc, path_edc_casebook):
+def run_tadsl_disp_init(path_t141_11, path_adam_spec, path_edc_code, path_edc_casebook):
     """
-    初版 T14_1-1_1：按 Meta_Data 流程生成 01/04/05/06 四部分。若文件已存在则备份后覆盖。
-    05_trt 簇数始终由 PATH_EDCDEF_CASEBOOK 解析得到（用户始终提供 casebook）。
+    初版 T14_1-1_1：按 Meta_Data 流程生成 01/04/05/06 四部分。若 t14_1-1_1.xlsx 已存在则仅告警不覆盖；不存在则生成。
 
-    path_t14: t14_1-1_1.xlsx 输出路径
-    path_adam: ADaM PDS 路径（可为空，则使用默认 RANDFL）
-    path_edc: EDCDEF_code 路径（.sas7bdat 或 .xlsx，可为空，则 05/06 原因为空）
+    path_t141_11: t14_1-1_1.xlsx 输出路径
+    path_adam_spec: ADaM PDS 路径（可为空，则使用默认 RANDFL）
+    path_edc_code: EDCDEF_code 路径（.sas7bdat 或 .xlsx，可为空，则 05/06 原因为空）
     path_edc_casebook: edcdef_casebook.sas7bdat 路径（用户提供）。据此解析 EDC_DATA 以 DSEOT 开头的观测数，生成对应簇数的 SEC=05_trt；校验变量名在 ADSL Study_specific='Y' 中（不通过仅 warning 仍生成）
     """
-    path_t14 = (path_t14 or "").strip()
-    if not path_t14:
+    path_t141_11 = (path_t141_11 or "").strip()
+    if not path_t141_11:
         raise ValueError("请设置 t14_1-1_1.xlsx 输出路径（宏参数 PATH_T14_1_1_1 或命令行第 1 个参数）。")
 
     randfl_enrlfl_flags = ("randfl",)
-    if path_adam and os.path.isfile(path_adam):
+    if path_adam_spec and os.path.isfile(path_adam_spec):
         try:
-            randfl_enrlfl_flags = parse_adam_spec_for_randfl_enrlfl(path_adam)
-            logger.info("ADaM 解析：%s", ", ".join(randfl_enrlfl_flags))
+            randfl_enrlfl_flags = parse_adam_spec_for_randfl_enrlfl(path_adam_spec)
         except Exception as e:
-            logger.warning("无法解析 ADaM 说明文件，将使用默认（随机受试者）：%s", e)
+            print("无法解析 ADaM 说明文件，将使用默认（随机受试者）：", e)
 
     edc_data = {}
-    if path_edc and os.path.isfile(path_edc):
+    if path_edc_code and os.path.isfile(path_edc_code):
         try:
-            edc_data = read_edcdef_code(path_edc)
-            logger.info("EDCDEF 已读取")
+            edc_data = read_edcdef_code(path_edc_code)
+            print("edcdef_cose.sas7bdat 已读取DS相关表单，获取失败原因列表")
         except Exception as e:
-            logger.warning("无法读取 EDCDEF_code，05/06 部分原因将为空：%s", e)
+            print("无法读取edcdef_cose.sas7bdat，05/06 部分原因将为空：", e)
 
     dct_reasons = _get_dctreas_reasons(edc_data)
     followup_reasons = _get_followup_reasons(edc_data)
@@ -616,55 +587,42 @@ def run_t14_init(path_t14, path_adam, path_edc, path_edc_casebook):
     path_edc_casebook = (path_edc_casebook or "").strip()
     otr_clusters = read_edcdef_casebook(path_edc_casebook) if path_edc_casebook else []
     if otr_clusters:
-        logger.info("Casebook 解析到 num_eot=%d 簇 05_trt：%s", len(otr_clusters), [v for _, v in otr_clusters])
-        adsl_study_vars = get_adsl_study_specific_variables(path_adam) if path_adam and os.path.isfile(path_adam) else set()
+        print("edcdef_casebook.sas7bdat中解析到有%d 簇 SEC=05_trt：%s" % (len(otr_clusters), [v for _, v in otr_clusters]))
+        if len(otr_clusters) == 1:
+            # 05_trt 簇数为 1 时，EDC_FORM 直接赋值为「治疗」作为 base
+            otr_clusters = [(_T14_05_BASE_KEEP, var_name) for _, var_name in otr_clusters]
+        adsl_study_vars = get_adsl_study_specific_variables(path_adam_spec) if path_adam_spec and os.path.isfile(path_adam_spec) else set()
         for base, var_name in otr_clusters:
             if var_name and var_name.upper() not in adsl_study_vars:
-                logger.warning("05_trt 变量 %s 不在 ADSL Study_specific='Y' 中，仍生成该簇", var_name)
+                print("05_trt 变量 %s 不在 ADSL Study_specific='Y' 中，仍生成该簇" % var_name)
     else:
-        logger.info("Casebook 未提供或未解析到 DSEOT 观测，05_trt 簇数为 0")
+        print("Casebook 未提供或未解析到 DSEOT 观测，05_trt 簇数为 0")
 
-    if os.path.isfile(path_t14):
-        backup_path = _backup_existing_to_archive(path_t14)
-        if backup_path:
-            logger.info("已备份原文件至：%s", backup_path)
+    '''
+    if os.path.isfile(path_t141_11):
+        print("WARNING:: t14_1-1_1.xlsx 已存在,不产生新文件。" )
+        return path_t141_11
+    '''
 
-    d = os.path.dirname(path_t14)
+    d = os.path.dirname(path_t141_11)
     if d:
         os.makedirs(d, exist_ok=True)
     rows = build_t14_1_1_1_rows(randfl_enrlfl_flags, dct_reasons, followup_reasons, screen_fail_reasons, otr_clusters)
-    write_t14_1_1_1_xlsx(path_t14, rows)
-    logger.info("已初始化 t14_1-1_1.xlsx（共 %d 行）：%s", len(rows), path_t14)
-    return path_t14
+    write_tadsl_disp_xlsx(path_t141_11, rows)
+    print("t14_1-1_1.xlsx已生成。共 %d 行：%s" % (len(rows), path_t141_11))
+    return path_t141_11
 
 
-if __name__ == "__main__":
-    # 可选：取消下面注释并改为你的路径后使用宏参数运行
-    # PATH_T14_1_1_1 = r"Z:\projects\HRS2129\HRS2129_test\csr_01\utility\metadata\t14_1-1_1.xlsx"
-    # PATH_ADAM_SPEC = r"Z:\projects\HRS2129\HRS2129_test\csr_01\utility\documentation\HRS2129_test_csr_01_ADAM_PDS.xlsx"
-    # PATH_EDCDEF_CODE = r"Z:\projects\HRS2129\HRS2129_test\csr_01\utility\metadata\edcdef_code.sas7bdat"
-    # PATH_EDCDEF_CASEBOOK = r"Z:\projects\HRS2129\HRS2129_test\csr_01\utility\metadata\edcdef_casebook.sas7bdat"
-    PATH_T14_1_1_1 = r".\t14_1-1_1.xlsx"
-    PATH_ADAM_SPEC = r".\SHR1905_202_csr_01_ADAM_PDS.xlsx"
-    PATH_EDCDEF_CODE = r".\edcdef_code.sas7bdat"
-    PATH_EDCDEF_CASEBOOK = r".\edcdef_casebook.sas7bdat"
-
-    if len(sys.argv) >= 5:
-        path_t14 = sys.argv[1]
-        path_adam = sys.argv[2]
-        path_edc = sys.argv[3]
-        path_edc_casebook = sys.argv[4]
-    else:
-        path_t14 = PATH_T14_1_1_1
-        path_adam = PATH_ADAM_SPEC
-        path_edc = PATH_EDCDEF_CODE
-        path_edc_casebook = PATH_EDCDEF_CASEBOOK or ""
-    if not path_t14:
-        print("请设置脚本顶部宏参数 PATH_T14_1_1_1、PATH_ADAM_SPEC、PATH_EDCDEF_CODE、PATH_EDCDEF_CASEBOOK，或使用：")
-        print("  python tfls_metadata_tadsl_disp.py <t14路径> <ADaM路径> <EDCDEF_code路径> <edcdef_casebook路径>")
-        sys.exit(1)
-    if not path_edc_casebook:
-        print("请设置 PATH_EDCDEF_CASEBOOK（edcdef_casebook.sas7bdat），05_trt 簇数始终由此解析。")
-        sys.exit(1)
-    run_t14_init(path_t14, path_adam, path_edc, path_edc_casebook)
-    print("受试者分布Metadata t14_1-1_1.xlsx已生成，文件路径为：", path_t14)
+if __name__ == "__main__":  
+    
+    #path_t141_11 = sys.argv[1]
+    #path_adam_spec = sys.argv[2]
+    #path_edc_code = sys.argv[3]
+    #path_edc_casebook = sys.argv[4]
+    path_t141_11 = r'.\SHR1905_202\t14_1-1_1.xlsx'
+    path_adam_spec = r'.\SHR1905_202\ADAM_PDS.xlsx'
+    path_edc_code = r'.\SHR1905_202\EDCDEF_code.sas7bdat'
+    path_edc_casebook = r'.\SHR1905_202\edcdef_casebook.sas7bdat'
+    
+    run_tadsl_disp_init(path_t141_11, path_adam_spec, path_edc_code, path_edc_casebook)
+    
