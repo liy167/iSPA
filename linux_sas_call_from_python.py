@@ -236,9 +236,11 @@ def main():
 
 
 if __name__ == '__main__':
-# 测试用：无命令行参数时使用以下 6 个 SAS 文件
+# 测试用：无命令行参数时使用以下 3 个 SAS 文件
     _TEST_SAS_PATHS = [
-        'Z:/projects/HRS2129/HRS2129_test/csr_01/utility/tools/25_generate_pdt_call.sas'
+        'Z:/projects/HRS2129/HRS2129_test/csr_01/utility/tools/02_batch_script_sdtm_qc.sas',
+        'Z:/projects/HRS2129/HRS2129_test/csr_01/utility/tools/04_batch_script_adam_qc.sas',
+        'Z:/projects/HRS2129/HRS2129_test/csr_01/utility/tools/06_batch_script_tfl_qc.sas',
 
     ]
     if len(sys.argv) == 1:
