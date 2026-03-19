@@ -33,7 +33,7 @@ _TOC_COLS = [
     "Template#", "Output Type", "Title_CN", "Title_EN", "Population",
     "Footnotes_CN", "Footnotes_EN", "Category_CN", "SAD", "FE", "MAD", "BE", "MB"
 ]
-_TOC_SHEET_COLS = ["OUTTYPE", "OUTREF", "OUTTITLE", "OUTPOP", "OUTNOTE"]
+_TOC_SHEET_COLS = ["OUTTYPE", "OUTREF", "OUTTITLE", "OUTPOP", "OUTNOTE", "PREFIX"]
 _EXCLUDED_CATEGORY_CN = {"QT分析", "C-QT分析", "PK浓度", "PK参数", "PD分析", "ADA分析"}
 _ENDPOINT_TO_CATEGORY = {
     "PK浓度(血)": "PK浓度", "PK浓度(尿)": "PK浓度", "PK浓度(粪)": "PK浓度",
@@ -204,6 +204,11 @@ def _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analy
     placeholder = _PLACEHOLDER_ANALYTE
     analytes = [a.strip() for a in (analyte_names or "").split("|") if a.strip()] if analyte_names else []
     aeacn_list = list(aeacn_labels) if aeacn_labels else []
+
+    def _format_analyte_for_title(analyte_val):
+        """Analyte 仅由字母数字组成时，标题中其后补一个空格。"""
+        s = str(analyte_val or "")
+        return s + " " if re.fullmatch(r"[A-Za-z0-9]+", s) else s
     base_categories = set()
     for ep in endpoints:
         if ep in _ENDPOINT_TO_CATEGORY:
@@ -278,23 +283,28 @@ def _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analy
                     result.append({
                         "Output Type": output_type, "Title": title_with_dt, "Population": population,
                         "Footnotes": footnotes, "Output Reference": out_ref,
+                        "PREFIX": label,
                     })
             elif _PLACEHOLDER_AEACN in base_title and not aeacn_list:
                 continue
             elif placeholder in base_title and analytes:
                 for idx, analyte in enumerate(analytes, start=1):
-                    title_with_dt = base_title.replace(placeholder, analyte)
+                    analyte_for_title = _format_analyte_for_title(analyte)
+                    title_with_dt = base_title.replace(placeholder, analyte_for_title)
                     out_ref = _build_out_ref(analyte_idx=idx)
                     result.append({
                         "Output Type": output_type, "Title": title_with_dt, "Population": population,
                         "Footnotes": footnotes, "Output Reference": out_ref,
+                        "PREFIX": analyte,
                     })
             else:
-                title_with_dt = base_title.replace(_PLACEHOLDER_AEACN, "").replace(placeholder, analytes[0] if analytes else "") if (_PLACEHOLDER_AEACN in base_title or placeholder in base_title) else base_title
+                default_analyte = _format_analyte_for_title(analytes[0]) if analytes else ""
+                title_with_dt = base_title.replace(_PLACEHOLDER_AEACN, "").replace(placeholder, default_analyte) if (_PLACEHOLDER_AEACN in base_title or placeholder in base_title) else base_title
                 out_ref = _build_out_ref()
                 result.append({
                     "Output Type": output_type, "Title": title_with_dt, "Population": population,
                     "Footnotes": footnotes, "Output Reference": out_ref,
+                    "PREFIX": "",
                 })
     return result
 
@@ -325,7 +335,8 @@ def gen_toc_study(template_path, study_path, setup_path, design_types, endpoints
     new_rows = _toc_filter_and_expand_rows(toc_rows, design_types, endpoints, use_cn, analyte_names, aeacn_labels=aeacn_labels)
     toc_sheet_rows = [
         {"OUTTYPE": r.get("Output Type") or "", "OUTREF": r.get("Output Reference") or "",
-         "OUTTITLE": r.get("Title") or "", "OUTPOP": r.get("Population") or "", "OUTNOTE": r.get("Footnotes") or ""}
+         "OUTTITLE": r.get("Title") or "", "OUTPOP": r.get("Population") or "", "OUTNOTE": r.get("Footnotes") or "",
+         "PREFIX": r.get("PREFIX") or ""}
         for r in new_rows
     ]
     d = os.path.dirname(study_path)
