@@ -6,6 +6,7 @@ TFLs 页面 - TFLs Combine 按钮逻辑（独立模块）
 点击后弹出弹窗：第一步确认需要 Combined TFLs（PDT Excel 文件），可编辑或确认。
 """
 import os
+import threading
 import tkinter as tk
 from tkinter import messagebox, filedialog
 
@@ -149,21 +150,22 @@ def run_tfls_combine(gui):
         hint_combine.pack(anchor="w", pady=(8, 0))
         dlg.update_idletasks()
         gui.update_status("正在运行 31_rtf_combine_call.sas…")
-        try:
-            run_sas(sas_path, check_log=False)
-        except Exception as e:
-            err_msg = str(e)
-            if "terminated unexpectedly" in err_msg or "No SAS process attached" in err_msg or "terminate" in err_msg.lower():
-                pass
-            else:
-                hint_combine.config(text="")
-                gui.update_status("Combine TFLs 执行出错：%s" % e)
-                messagebox.showerror("错误", "运行 31_rtf_combine_call.sas 时出错：%s" % e)
-                return
-        hint_combine.config(text="")
-        gui.update_status("Combine TFLs 已执行完成。")
-        reports_dir = os.path.join(base_path, "03_reports")
-        _show_folder_window(dlg, reports_dir)
+        def worker():
+            try:
+                run_sas(sas_path, check_log=False)
+            except Exception as e:
+                err_msg = str(e)
+                if "terminated unexpectedly" not in err_msg and "No SAS process attached" not in err_msg and "terminate" not in err_msg.lower():
+                    gui.root.after(0, lambda: hint_combine.config(text=""))
+                    gui.root.after(0, lambda: gui.update_status("Combine TFLs 执行出错：%s" % e))
+                    gui.root.after(0, lambda: messagebox.showerror("错误", "运行 31_rtf_combine_call.sas 时出错：%s" % e))
+                    return
+            reports_dir = os.path.join(base_path, "03_reports")
+            gui.root.after(0, lambda: hint_combine.config(text=""))
+            gui.root.after(0, lambda: gui.update_status("Combine TFLs 已执行完成。"))
+            gui.root.after(0, lambda: _show_folder_window(dlg, reports_dir))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _show_folder_window(parent, folder_path):
         """弹出新窗口：按钮在文字说明上方，展示文件夹路径。"""

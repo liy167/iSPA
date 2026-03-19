@@ -16,10 +16,9 @@ def show_sap_toc_dialog(gui):
     """
     dlg = tk.Toplevel(gui.root)
     dlg.title("TOC Gen")
-    dlg.geometry("1320x420")
+    dlg.geometry("1320x520")
     dlg.resizable(True, True)
     dlg.transient(gui.root)
-    dlg.grab_set()
     dlg.configure(bg="#f0f0f0")
 
     main = tk.Frame(dlg, padx=20, pady=16, bg="#f0f0f0")
@@ -132,6 +131,13 @@ def show_sap_toc_dialog(gui):
         if not os.path.isfile(template_path):
             messagebox.showerror("错误", f"TOC_template 文件不存在或无法访问：{template_path}")
             return
+        if os.path.isfile(study_path):
+            should_regenerate = messagebox.askyesno(
+                "提示",
+                "TOC.xlsx 已经存在，请确认是否重新产生？"
+            )
+            if not should_regenerate:
+                return
 
         design_types = [k for k, v in q1_vars.items() if v.get()]
         endpoints = [k for k, v in q2_vars.items() if v.get()]
@@ -168,7 +174,7 @@ def show_sap_toc_dialog(gui):
             gui.update_status(msg)
             success_win = tk.Toplevel(dlg)
             success_win.title("成功")
-            success_win.geometry("600x175")
+            success_win.geometry("600x260")
             success_win.transient(dlg)
             success_win.resizable(False, False)
             success_win.configure(bg="#eaeaea")

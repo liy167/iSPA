@@ -4,6 +4,7 @@ import warnings
 import time
 import threading
 import subprocess
+import glob
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pywinauto.application import Application
@@ -386,7 +387,7 @@ class SASEGGUI:
                 btn_toc_gen.pack(side=tk.LEFT)
             elif page_id == "TFLs":
                 btn_row = tk.Frame(f, bg="#f5f5f5")
-                btn_row.pack(anchor="w", padx=16, pady=16)
+                btn_row.pack(anchor="w", padx=16, pady=(16, 0))
                 btn_width = 10  # 两按钮列宽相同且较窄，文字各两行显示
                 btn_metadata = tk.Button(
                     btn_row,
@@ -458,6 +459,39 @@ class SASEGGUI:
                     pady=6
                 )
                 btn_tfls_combine.pack(side=tk.LEFT)
+                btn_row2 = tk.Frame(f, bg="#f5f5f5")
+                btn_row2.pack(anchor="w", padx=16, pady=(8, 16))
+                btn_pdt_manager = tk.Button(
+                    btn_row2,
+                    text="PDT\nManager",
+                    command=self.launch_pdt_manager,
+                    font=("Arial", 10, "bold"),
+                    bg="#f5f5f5",
+                    fg="#205572",
+                    relief=tk.FLAT,
+                    bd=0,
+                    highlightthickness=0,
+                    activebackground="#f5f5f5",
+                    activeforeground="#205572",
+                    justify="center",
+                    anchor="center",
+                    cursor="hand2",
+                    padx=10,
+                    pady=6
+                )
+                try:
+                    icon_path = os.path.join(os.path.dirname(__file__), "pdt_manager_icon.png")
+                    self.pdt_manager_icon = tk.PhotoImage(file=icon_path).subsample(3, 3)
+                    btn_pdt_manager.config(
+                        image=self.pdt_manager_icon,
+                        compound="top",
+                        padx=4,
+                        pady=4,
+                    )
+                except Exception:
+                    # 图片加载失败时回退到文字按钮
+                    btn_pdt_manager.config(text="PDT\nManager")
+                btn_pdt_manager.pack(side=tk.LEFT, padx=(0, 8))
             else:
                 lbl = tk.Label(
                     f,
@@ -1083,6 +1117,36 @@ class SASEGGUI:
             error_msg = f"使用SAS EG打开文件时出错: {str(e)}"
             self.show_error(error_msg)
             self.update_status(error_msg)
+
+    def launch_pdt_manager(self):
+        """异步启动PDT Manager，不阻塞GUI或其他按钮流程"""
+        self.update_status("正在查找 PDTManager 程序...")
+        thread = threading.Thread(target=self._launch_pdt_manager_worker)
+        thread.daemon = True
+        thread.start()
+
+    def _launch_pdt_manager_worker(self):
+        """在后台查找并启动 PDTManager*.exe"""
+        pdt_dir = r"Z:\projects\Z_PYTHON\PDT"
+        pattern = os.path.join(pdt_dir, "PDTManager*.exe")
+        try:
+            candidates = sorted(glob.glob(pattern))
+            if not candidates:
+                msg = f"未找到可执行文件: {pattern}"
+                self.root.after(0, lambda m=msg: self.update_status(m))
+                self.root.after(0, lambda m=msg: self.show_error(m))
+                return
+
+            target_exe = candidates[0]
+            subprocess.Popen(target_exe, shell=False)
+            self.root.after(
+                0,
+                lambda: self.update_status(f"已启动 PDT Manager: {os.path.basename(target_exe)}")
+            )
+        except Exception as e:
+            error_msg = f"启动 PDT Manager 失败: {str(e)}"
+            self.root.after(0, lambda m=error_msg: self.update_status(m))
+            self.root.after(0, lambda m=error_msg: self.show_error(m))
     
     def open_seguide(self):
         """打开SEGuide.exe"""

@@ -6,6 +6,7 @@ TFLs 页面 - Initial PGM 按钮逻辑（独立模块）
 弹窗两步：第一步运行 60_initial_pgm_call.sas；第二步运行 61_ladae_template_call.sas（均通过 PROD 端）。
 """
 import os
+import threading
 import tkinter as tk
 from tkinter import messagebox, filedialog
 
@@ -43,7 +44,6 @@ def run_initial_pgm(gui):
     dlg.geometry("1350x460")
     dlg.resizable(True, False)
     dlg.transient(gui.root)
-    dlg.grab_set()
     dlg.configure(bg="#f0f0f0")
 
     main = tk.Frame(dlg, padx=20, pady=16, bg="#f0f0f0")
@@ -92,11 +92,14 @@ def run_initial_pgm(gui):
         # 先展示蓝色提示性文字，再调用 SAS
         hint_step1.config(text=_hint_text_step1)
         dlg.update_idletasks()
-        try:
-            has_issue = run_sas(path, check_log=True)  # 通过 linux_sas_call_from_python 在 PROD 端执行
-            gui.update_status("60_initial_pgm_call.sas 已执行完成（有 ERROR/WARNING 时已由日志审阅窗口提示）。" if has_issue else "已在 PROD 端执行 60_initial_pgm_call.sas。")
-        except Exception as e:
-            messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e)
+        def worker():
+            try:
+                run_sas(path, check_log=False)  # 后台执行，避免阻塞其他页面/按钮
+                gui.root.after(0, lambda: gui.update_status("已在 PROD 端执行 60_initial_pgm_call.sas。"))
+            except Exception as e:
+                gui.root.after(0, lambda: messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def open_06_programs():
         folder = os.path.join(base_path, "06_programs")
@@ -153,11 +156,14 @@ def run_initial_pgm(gui):
         hint_step2.config(text=_hint_text_step2)
         hint_step2.pack(anchor="w", pady=(6, 0))
         dlg.update_idletasks()
-        try:
-            has_issue = run_sas(path, check_log=True)  # 通过 linux_sas_call_from_python 在 PROD 端执行
-            gui.update_status("61_ladae_template_call.sas 已执行完成（有 ERROR/WARNING 时已由日志审阅窗口提示）。" if has_issue else "已在 PROD 端执行 61_ladae_template_call.sas。")
-        except Exception as e:
-            messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e)
+        def worker():
+            try:
+                run_sas(path, check_log=False)  # 后台执行，避免阻塞其他页面/按钮
+                gui.root.after(0, lambda: gui.update_status("已在 PROD 端执行 61_ladae_template_call.sas。"))
+            except Exception as e:
+                gui.root.after(0, lambda: messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def open_062_safety():
         folder = os.path.join(base_path, "06_programs", "062_safety")

@@ -105,7 +105,7 @@
 
 前 3 行 TEXT **不固定**，由 ADaM Variables sheet 中 **指定数据集下指定变量（治疗结束状态）的 Variable Label** 动态生成。
 
-**可配置宏（代码 `tfls_metadata.py` 05 部分）：** `_T14_05_DATASET`（默认 "ADSL"）、`_T14_05_VAR_EOTSTT`（默认 "EOTSTT"），修改后即可更换数据集名与变量名。
+**说明：** 受试者分布等 Meta 表格若由 SAS 程序 `utility/tools/30_generate_tflmeta_call.sas` 生成，请在 SAS 侧配置数据集名与变量名；GUI 中「Metadata Setup」仅负责调用该程序。
 
 1. **数据来源：** Variables sheet → Dataset=*_T14_05_DATASET* → Variable=*_T14_05_VAR_EOTSTT* → 取「Variable Label」/「标签」列的值（如「治疗结束状态」）。未找到时使用默认「治疗结束状态」。
 2. **生成规则：** 从标签中**保留「治疗」两字**作为 base（去掉其余字样，不固定后缀），则：

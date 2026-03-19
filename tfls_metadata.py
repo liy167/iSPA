@@ -5,6 +5,7 @@ TFLs 页面 - Metadata Setup 弹窗：运行 utility/tools/30_generate_tflmeta_c
 主界面绑定：command=lambda: show_metadata_setup_dialog(gui)
 """
 import os
+import threading
 import tkinter as tk
 from tkinter import messagebox, filedialog
 
@@ -48,7 +49,6 @@ def show_metadata_setup_dialog(gui):
     dlg.geometry("1100x220")
     dlg.resizable(True, True)
     dlg.transient(gui.root)
-    dlg.grab_set()
     dlg.configure(bg="#f0f0f0")
 
     main = tk.Frame(dlg, padx=20, pady=16, bg="#f0f0f0")
@@ -116,16 +116,21 @@ def show_metadata_setup_dialog(gui):
         if not path.lower().endswith(".sas"):
             messagebox.showwarning("提示", "请选择 .sas 程序文件。")
             return
-        try:
-            has_issue = run_sas(path, check_log=True)
-        except Exception as e:
-            messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e)
-            return
-        gui.update_status(
-            "30_generate_tflmeta_call.sas 已执行完成（有 ERROR/WARNING 时已由日志审阅窗口提示）。"
-            if has_issue
-            else "已在 Linux 服务器执行 30_generate_tflmeta_call.sas。"
-        )
+        def worker():
+            try:
+                has_issue = run_sas(path, check_log=False)
+                gui.root.after(
+                    0,
+                    lambda: gui.update_status(
+                        "30_generate_tflmeta_call.sas 已执行完成。"
+                        if has_issue
+                        else "已在 Linux 服务器执行 30_generate_tflmeta_call.sas。"
+                    ),
+                )
+            except Exception as e:
+                gui.root.after(0, lambda: messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     tk.Button(
         btn_frame,

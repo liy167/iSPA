@@ -264,7 +264,6 @@ def run_batch_run(gui):
     dlg.geometry("1500x680")  # 高度 680 以容纳四步内容
     dlg.resizable(True, True)
     dlg.transient(gui.root)
-    dlg.grab_set()
     dlg.configure(bg="#f0f0f0")
 
     main = tk.Frame(dlg, padx=20, pady=16, bg="#f0f0f0")
@@ -458,7 +457,6 @@ def run_batch_run(gui):
             win_fail.title("完成")
             win_fail.configure(bg="#f0f0f0")
             win_fail.transient(dlg)
-            win_fail.grab_set()
             n = len(failed_lines)
             tk.Label(
                 win_fail,

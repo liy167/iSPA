@@ -5,6 +5,7 @@ TFLs 页面 - 生成PDT 弹窗逻辑（独立模块，避免 SASEG_GUI 过于庞
 import os
 import re
 import shutil
+import threading
 from datetime import datetime
 import tkinter as tk
 from tkinter import messagebox, filedialog
@@ -381,7 +382,6 @@ def show_pdt_dialog(gui):
     dlg.geometry("1000x200")
     dlg.resizable(True, True)
     dlg.transient(gui.root)
-    dlg.grab_set()
     dlg.configure(bg="#f0f0f0")
 
     main = tk.Frame(dlg, padx=20, pady=16, bg="#f0f0f0")
@@ -407,14 +407,14 @@ def show_pdt_dialog(gui):
             messagebox.showerror("错误", "无法导入 linux_sas_call_from_python（请确保该模块在项目目录下且已安装 saspy）。\n\n%s" % e)
             return
 
-        try:
-            has_issue = run_sas(sas_script_win, check_log=True)
-        except Exception as e:
-            messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e)
-            return
+        def worker():
+            try:
+                run_sas(sas_script_win, check_log=False)
+                gui.root.after(0, lambda: gui.update_status("已在 Linux 服务器执行 25_generate_pdt_call.sas。"))
+            except Exception as e:
+                gui.root.after(0, lambda: messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e))
 
-        # 日志审阅（ERROR/WARNING 弹窗、是否打开日志）已由 linux_sas_call_from_python 完成，此处仅更新 GUI 状态栏
-        gui.update_status("25_generate_pdt_call.sas 已执行完成（有 ERROR/WARNING 时已由日志审阅窗口提示）。" if has_issue else "已在 Linux 服务器执行 25_generate_pdt_call.sas。")
+        threading.Thread(target=worker, daemon=True).start()
 
     def on_open_edit(pdt_widget):
         p = pdt_widget.get().strip()
