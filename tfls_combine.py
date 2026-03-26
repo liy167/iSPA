@@ -142,7 +142,7 @@ def run_tfls_combine(gui):
             messagebox.showerror("错误", "未找到程序：%s" % sas_path)
             return
         try:
-            from linux_sas_call_from_python import run_sas
+            from linux_sas_call_from_python import run_sas, review_log_from_content
         except ImportError as e:
             messagebox.showerror("错误", "无法导入 linux_sas_call_from_python。\n\n%s" % e)
             return
@@ -152,7 +152,9 @@ def run_tfls_combine(gui):
         gui.update_status("正在运行 31_rtf_combine_call.sas…")
         def worker():
             try:
-                run_sas(sas_path, check_log=False)
+                has_issue, summary, log_text, source_label = run_sas(
+                    sas_path, check_log=False, return_details=True
+                )
             except Exception as e:
                 err_msg = str(e)
                 if "terminated unexpectedly" not in err_msg and "No SAS process attached" not in err_msg and "terminate" not in err_msg.lower():
@@ -160,10 +162,24 @@ def run_tfls_combine(gui):
                     gui.root.after(0, lambda: gui.update_status("Combine TFLs 执行出错：%s" % e))
                     gui.root.after(0, lambda: messagebox.showerror("错误", "运行 31_rtf_combine_call.sas 时出错：%s" % e))
                     return
+                has_issue, summary, log_text, source_label = False, "✅ 运行成功", "", "(来自 SAS 会话)"
+
             reports_dir = os.path.join(base_path, "03_reports")
-            gui.root.after(0, lambda: hint_combine.config(text=""))
-            gui.root.after(0, lambda: gui.update_status("Combine TFLs 已执行完成。"))
-            gui.root.after(0, lambda: _show_folder_window(dlg, reports_dir))
+
+            def on_done():
+                hint_combine.config(text="")
+                if has_issue:
+                    review_log_from_content(log_text, source_label)
+                else:
+                    messagebox.showinfo("完成", "恭喜您，程序已运行完成! 无ERROR/WARNING。")
+                gui.update_status(
+                    f"Combine TFLs 已执行完成（{summary}，日志弹窗已显示 ERROR/WARNING 关键行）。"
+                    if has_issue
+                    else f"Combine TFLs 已执行完成（{summary}）。"
+                )
+                _show_folder_window(dlg, reports_dir)
+
+            gui.root.after(0, on_done)
 
         threading.Thread(target=worker, daemon=True).start()
 

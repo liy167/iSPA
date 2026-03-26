@@ -35,6 +35,64 @@ def convert_windows_path_to_linux(windows_path):
 # 审核：ERROR:: 或 ERROR:；WARNING:: 或 WARNING:
 ERROR_PATTERN = re.compile(r'ERROR\s*::|ERROR\s*:', re.IGNORECASE)
 WARNING_PATTERN = re.compile(r'WARNING\s*::|WARNING\s*:', re.IGNORECASE)
+ERROR_LINE_PATTERN = re.compile(r'^\s*ERROR\s*:', re.IGNORECASE)
+WARNING_LINE_PATTERN = re.compile(r'^\s*WARNING\s*:', re.IGNORECASE)
+NOTE_LINE_PATTERN = re.compile(r'^\s*NOTE\s*:', re.IGNORECASE)
+
+
+def _extract_log_findings(log_text: str):
+    """从日志中提取结构化信息（错误/警告/关键NOTE/高亮行）。"""
+    findings = {
+        "errors": [],
+        "warnings": [],
+        "notes": [],
+        "highlight": [],  # [(line_text, kind), ...]
+        "key_note": "",
+    }
+
+    if not log_text:
+        return findings
+
+    for raw_line in log_text.splitlines(keepends=True):
+        stripped = raw_line.strip()
+        if ERROR_LINE_PATTERN.match(raw_line):
+            findings["errors"].append(stripped)
+            findings["highlight"].append((raw_line, "error"))
+        elif WARNING_LINE_PATTERN.match(raw_line):
+            findings["warnings"].append(stripped)
+            findings["highlight"].append((raw_line, "warning"))
+        elif NOTE_LINE_PATTERN.match(raw_line):
+            findings["notes"].append(stripped)
+
+    for note in findings["notes"]:
+        note_lower = note.lower()
+        if "proc compare" in note_lower or "no unequal" in note_lower:
+            findings["key_note"] = note
+            break
+
+    return findings
+
+
+def _build_log_summary(findings: dict) -> str:
+    """生成与 sas_runner 风格接近的摘要文本。"""
+    parts = []
+    err_count = len(findings.get("errors", []))
+    warn_count = len(findings.get("warnings", []))
+    key_note = findings.get("key_note", "")
+
+    if err_count:
+        parts.append(f"❌ {err_count} 个错误")
+    if warn_count:
+        parts.append(f"⚠ {warn_count} 个警告")
+    if key_note:
+        parts.append(f"📋 {key_note}")
+
+    return " | ".join(parts)
+
+
+def review_log_from_content(log_content: str, source_label: str = "(来自 SAS 会话)") -> bool:
+    """供上层在主线程中调用：基于日志文本弹出 ERROR/WARNING 审阅窗口。"""
+    return _review_log_content(log_content or "", source_label)
 
 
 def _print_log_review_console(lines_with_kind, log_path):
@@ -103,16 +161,11 @@ def _review_log_content(log_content: str, source_label: str, on_window_close=Non
     if not (log_content or "").strip():
         return False
     print(log_content)
-    has_error = bool(ERROR_PATTERN.search(log_content))
-    has_warning = bool(WARNING_PATTERN.search(log_content))
+    findings = _extract_log_findings(log_content)
+    has_error = len(findings["errors"]) > 0
+    has_warning = len(findings["warnings"]) > 0
     if has_error or has_warning:
-        lines = log_content.splitlines(keepends=True)
-        highlight = []
-        for line in lines:
-            if ERROR_PATTERN.search(line):
-                highlight.append((line, 'error'))
-            elif WARNING_PATTERN.search(line):
-                highlight.append((line, 'warning'))
+        highlight = findings["highlight"]
         if IS_LINUX:
             _print_log_review_console(highlight, source_label)
         else:
@@ -138,11 +191,14 @@ def check_for_errors_in_log(log_file_path, fallback_log_content=None, on_window_
         return False
 
 
-def run_sas(sas_file_path: str, sas_session=None, check_log=True) -> bool:
+def run_sas(sas_file_path: str, sas_session=None, check_log=True, return_summary=False, return_details=False):
     """根据给定的 sas_file_path 在 Linux SAS 上执行并可选择审核日志。
     sas_session: 可选，若传入则复用该会话（用于连续执行多个 SAS 文件）；否则本函数内创建并在结束时关闭。
     check_log: 是否进行日志审阅（ERROR/WARNING）；提交多条 SAS 程序时可设为 False 以跳过。
-    返回: 是否有错误或警告（未审阅时返回 False）。
+    返回:
+      - 默认返回 bool（是否有错误或警告）
+      - 若 return_summary=True，返回 (has_issue: bool, summary: str)
+      - 若 return_details=True，返回 (has_issue: bool, summary: str, log_text: str, source_label: str)
     支持传入 Windows 路径（Z:\\...）或 Linux 路径（/u01/...）；提交给 SAS 时统一转为 Linux 路径，日志才能写到服务器并可通过 Z: 读取。
     """
     macro_file_path = '/u01/app/sas/sas9.4/DocumentRepository/DDT/projects/utility/macros/01_general/autorun.sas'
@@ -173,7 +229,7 @@ run;
 
     own_session = sas_session is None
     if own_session:
-        sas = saspy.SASsession(cfgname='winiomlinux')
+        sas = saspy.SASsession(cfgname='winiomIWA')
     else:
         sas = sas_session
 
@@ -190,21 +246,48 @@ run;
 
     try:
         sas_output = sas.submit(sas_code)
+        log_from_sas = sas_output.get('LOG', '') if isinstance(sas_output, dict) else ''
+        findings = _extract_log_findings(log_from_sas)
+        summary = _build_log_summary(findings)
+        if not summary:
+            if len(findings["errors"]) > 0 or len(findings["warnings"]) > 0:
+                summary = "❌ 运行完成（发现错误或警告）"
+            else:
+                summary = "✅ 运行成功"
+
+        source_label = log_output_path
+
         if not check_log:
             print(f"SAS程序 {sas_file_path} 已提交执行。")
-            return False
-        log_from_sas = sas_output.get('LOG', '') if isinstance(sas_output, dict) else ''
+            if summary:
+                print(f"摘要: {summary}")
+            has_issue = len(findings["errors"]) > 0 or len(findings["warnings"]) > 0
+            if return_details:
+                return has_issue, summary, log_from_sas, source_label
+            if return_summary:
+                return has_issue, summary
+            return has_issue
+
         has_issue = check_for_errors_in_log(
             log_output_path,
             fallback_log_content=log_from_sas,
             on_window_close=on_log_window_close if own_session else None,
         )
         if has_issue:
-            print(f"SAS程序 {sas_file_path} 执行时出现错误或警告！")
+            if summary:
+                print(f"SAS程序 {sas_file_path} 执行完成：{summary}")
+            else:
+                print(f"SAS程序 {sas_file_path} 执行时出现错误或警告！")
         else:
             print(f"SAS程序 {sas_file_path} 执行成功。")
+            if summary:
+                print(summary)
             if not IS_LINUX:
                 messagebox.showinfo("完成", "恭喜您，程序已运行完成! 无ERROR/WARNING。")
+        if return_details:
+            return has_issue, summary, log_from_sas, source_label
+        if return_summary:
+            return has_issue, summary
         return has_issue
     finally:
         if own_session and not session_ended[0]:
@@ -224,7 +307,9 @@ def main():
         run_sas(paths[0])
         return
     # 多个文件：共用一个 SAS 会话依次执行，不进行日志检查
-    sas = saspy.SASsession(cfgname='winiomlinux')
+    #sas = saspy.SASsession(cfgname='winiomlinux')
+    sas = saspy.SASsession(cfgname='winiomIWA')
+
     try:
         for i, sas_file_path in enumerate(paths, 1):
             print(f"\n[{i}/{len(paths)}] 执行: {sas_file_path}")

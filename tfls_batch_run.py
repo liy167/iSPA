@@ -331,7 +331,7 @@ def run_batch_run(gui):
                 return
             gui.update_status("已生成 %d 个初版 Batch Run 脚本，正在批量运行…" % len(generated))
             # 第三步：批量运行。%batch_script_generator 会强制终止 SAS 进程，遇此情况不弹窗，新建会话后继续下一个
-            sas = saspy.SASsession(cfgname='winiomlinux')
+            sas = saspy.SASsession(cfgname='winiomIWA')
             try:
                 for sas_path in generated:
                     sas_path_linux = convert_windows_path_to_linux(sas_path)
@@ -345,7 +345,7 @@ def run_batch_run(gui):
                                 sas.endsas()
                             except Exception:
                                 pass
-                            sas = saspy.SASsession(cfgname='winiomlinux')
+                            sas = saspy.SASsession(cfgname='winiomIWA')
                             gui.update_status("已运行 %s，继续下一个…" % os.path.basename(sas_path))
                         else:
                             gui.update_status("Batch Run 执行出错：%s" % e)
@@ -591,7 +591,7 @@ run;
             return
         gui.update_status("已解析 %d 个 %%log_chk 宏，正在依次运行…" % len(log_chk_calls))
         dlg.update_idletasks()
-        sas = saspy.SASsession(cfgname='winiomlinux')
+        sas = saspy.SASsession(cfgname='winiomIWA')
         try:
             for i, sas_path in enumerate(temp_files, 1):
                 gui.update_status("[%d/%d] Log Check: %s" % (i, len(temp_files), os.path.basename(sas_path)))
@@ -605,7 +605,7 @@ run;
                             sas.endsas()
                         except Exception:
                             pass
-                        sas = saspy.SASsession(cfgname='winiomlinux')
+                        sas = saspy.SASsession(cfgname='winiomIWA')
                         gui.update_status("已运行 %s，继续下一个…" % os.path.basename(sas_path))
                     else:
                         gui.update_status("Log Check 执行出错：%s" % e)

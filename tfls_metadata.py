@@ -33,7 +33,7 @@ def show_metadata_setup_dialog(gui):
         return
 
     try:
-        from linux_sas_call_from_python import run_sas
+        from linux_sas_call_from_python import run_sas, review_log_from_content
     except ImportError as e:
         messagebox.showerror(
             "错误",
@@ -118,17 +118,25 @@ def show_metadata_setup_dialog(gui):
             return
         def worker():
             try:
-                has_issue = run_sas(path, check_log=False)
-                gui.root.after(
-                    0,
-                    lambda: gui.update_status(
-                        "30_generate_tflmeta_call.sas 已执行完成。"
-                        if has_issue
-                        else "已在 Linux 服务器执行 30_generate_tflmeta_call.sas。"
-                    ),
+                has_issue, summary, log_text, source_label = run_sas(
+                    path, check_log=False, return_details=True
                 )
             except Exception as e:
                 gui.root.after(0, lambda: messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e))
+                return
+
+            def on_done():
+                if has_issue:
+                    review_log_from_content(log_text, source_label)
+                else:
+                    messagebox.showinfo("完成", "恭喜您，程序已运行完成! 无ERROR/WARNING。")
+                gui.update_status(
+                    f"30_generate_tflmeta_call.sas 已执行完成（{summary}，日志弹窗已显示 ERROR/WARNING 关键行）。"
+                    if has_issue
+                    else f"已在 Linux 服务器执行 30_generate_tflmeta_call.sas（{summary}）。"
+                )
+
+            gui.root.after(0, on_done)
 
         threading.Thread(target=worker, daemon=True).start()
 

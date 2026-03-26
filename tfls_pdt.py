@@ -374,12 +374,12 @@ def gen_toc_study(template_path, study_path, setup_path, design_types, endpoints
 
 def show_pdt_dialog(gui):
     """
-    显示「生成PDT」弹窗（仅保留原第三步：基于 TOC.xlsx 与项目层面 PDT.xlsx，初版PDT/编辑）。
+    显示「生成PDT」弹窗（基于 TOC.xlsx 与项目层面 PDT.xlsx，初版PDT/编辑）。
     gui: 主窗口实例，需有 .root, .get_current_path(), .selected_paths, .update_status()
     """
     dlg = tk.Toplevel(gui.root)
     dlg.title("生成PDT")
-    dlg.geometry("1000x200")
+    dlg.geometry("1000x260")
     dlg.resizable(True, True)
     dlg.transient(gui.root)
     dlg.configure(bg="#f0f0f0")
@@ -402,17 +402,32 @@ def show_pdt_dialog(gui):
         linux_path = convert_windows_path_to_linux(sas_script_win)
 
         try:
-            from linux_sas_call_from_python import run_sas
+            from linux_sas_call_from_python import run_sas, review_log_from_content
         except ImportError as e:
             messagebox.showerror("错误", "无法导入 linux_sas_call_from_python（请确保该模块在项目目录下且已安装 saspy）。\n\n%s" % e)
             return
 
         def worker():
             try:
-                run_sas(sas_script_win, check_log=False)
-                gui.root.after(0, lambda: gui.update_status("已在 Linux 服务器执行 25_generate_pdt_call.sas。"))
+                has_issue, summary, log_text, source_label = run_sas(
+                    sas_script_win, check_log=False, return_details=True
+                )
             except Exception as e:
                 gui.root.after(0, lambda: messagebox.showerror("错误", "调用 SAS 程序时出错：%s" % e))
+                return
+
+            def on_done():
+                if has_issue:
+                    review_log_from_content(log_text, source_label)
+                else:
+                    messagebox.showinfo("完成", "恭喜您，程序已运行完成! 无ERROR/WARNING。")
+                gui.update_status(
+                    f"25_generate_pdt_call.sas 已执行完成（{summary}，日志弹窗已显示 ERROR/WARNING 关键行）。"
+                    if has_issue
+                    else f"已在 Linux 服务器执行 25_generate_pdt_call.sas（{summary}）。"
+                )
+
+            gui.root.after(0, on_done)
 
         threading.Thread(target=worker, daemon=True).start()
 

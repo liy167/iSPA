@@ -22,6 +22,14 @@ warnings.simplefilter("ignore", UserWarning)
 sys.coinit_flags = 2
 
 
+def _resource_path(relative_path):
+    """资源文件路径：开发时为脚本目录；PyInstaller onefile 解压目录为 _MEIPASS。"""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, relative_path)
+
+
 class SearchableCombobox(ttk.Combobox):
     """支持搜索功能的Combobox"""
     def __init__(self, parent, **kwargs):
@@ -480,7 +488,7 @@ class SASEGGUI:
                     pady=6
                 )
                 try:
-                    icon_path = os.path.join(os.path.dirname(__file__), "pdt_manager_icon.png")
+                    icon_path = _resource_path("pdt_manager_icon.png")
                     self.pdt_manager_icon = tk.PhotoImage(file=icon_path).subsample(3, 3)
                     btn_pdt_manager.config(
                         image=self.pdt_manager_icon,

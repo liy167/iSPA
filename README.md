@@ -17,5 +17,5 @@
 
 - `SASEG_GUI.py` — 主程序  
 - `requirements.txt` — Python 依赖  
-- `build_exe.bat` / `build_exe_advanced.bat` — 打包脚本  
+- `build_exe.bat` — 打包脚本  
 - `logo.png` — 程序图标
