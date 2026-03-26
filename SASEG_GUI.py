@@ -397,20 +397,6 @@ class SASEGGUI:
                 btn_row = tk.Frame(f, bg="#f5f5f5")
                 btn_row.pack(anchor="w", padx=16, pady=(16, 0))
                 btn_width = 10  # 两按钮列宽相同且较窄，文字各两行显示
-                btn_metadata = tk.Button(
-                    btn_row,
-                    text="Metadata\nSetup",
-                    command=lambda: show_metadata_setup_dialog(self),
-                    width=btn_width,
-                    font=("Microsoft YaHei UI", 10, "bold"),
-                    bg="#205572",
-                    fg="white",
-                    relief=tk.FLAT,
-                    cursor="hand2",
-                    padx=10,
-                    pady=6
-                )
-                btn_metadata.pack(side=tk.LEFT, padx=(0, 8))
                 btn_pdt = tk.Button(
                     btn_row,
                     text="PDT\nGen",
@@ -425,6 +411,20 @@ class SASEGGUI:
                     pady=6
                 )
                 btn_pdt.pack(side=tk.LEFT, padx=(0, 8))
+                btn_metadata = tk.Button(
+                    btn_row,
+                    text="Metadata\nSetup",
+                    command=lambda: show_metadata_setup_dialog(self),
+                    width=btn_width,
+                    font=("Microsoft YaHei UI", 10, "bold"),
+                    bg="#205572",
+                    fg="white",
+                    relief=tk.FLAT,
+                    cursor="hand2",
+                    padx=10,
+                    pady=6
+                )
+                btn_metadata.pack(side=tk.LEFT, padx=(0, 8))
                 btn_pgm_init = tk.Button(
                     btn_row,
                     text="Initial\nPGM",

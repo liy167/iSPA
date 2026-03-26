@@ -56,7 +56,7 @@ def show_metadata_setup_dialog(gui):
 
     step_title = tk.Label(
         main,
-        text="第一步：运行 30_generate_tflmeta_call.sas，生成 TFL Metadata。",
+        text="运行 30_generate_tflmeta_call.sas，生成 TFL Metadata。",
         font=("Microsoft YaHei UI", 10, "bold"),
         fg="#333333",
         bg="#f0f0f0",
@@ -140,10 +140,25 @@ def show_metadata_setup_dialog(gui):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def open_tfl_metadata_folder():
+        folder = os.path.join(base_path, "utility", "metadata")
+        if not os.path.isdir(folder):
+            messagebox.showwarning("提示", "文件夹不存在：\n%s" % folder)
+            return
+        os.startfile(folder)
+        gui.update_status("已打开 TFL Metadata 目录：utility/metadata")
+
     tk.Button(
         btn_frame,
-        text="运行 TFL Meta 生成",
+        text="生成TFL Metadata",
         command=run_metadata,
         width=22,
         font=("Microsoft YaHei UI", 9),
     ).pack(side=tk.LEFT)
+    tk.Button(
+        btn_frame,
+        text="编辑TFL Metadata",
+        command=open_tfl_metadata_folder,
+        width=22,
+        font=("Microsoft YaHei UI", 9),
+    ).pack(side=tk.LEFT, padx=(12, 0))
